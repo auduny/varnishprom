@@ -164,7 +164,7 @@ func main() {
 
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	defer fmt.Println("Program is exiting")
+	defer log.Println("Program is exiting")
 
 	// Create a mutex
 	var mutex sync.Mutex
@@ -174,7 +174,7 @@ func main() {
 			// Try to lock the mutex
 			if !mutex.TryLock() {
 				// If the mutex is already locked, skip this tick
-				fmt.Println("Mutex is locked, skipping tick, we might have a problem")
+				log.Println("Mutex is locked, skipping tick, we might have a problem")
 				continue
 			}
 
@@ -206,7 +206,7 @@ func main() {
 				}
 			}
 
-			fmt.Println("Active VCL is", activeVcl)
+			log.Println("Active VCL is", activeVcl)
 
 			varnishstat := exec.Command("varnishstat", "-1")
 			// Get a pipe connected to the command's standard output.
@@ -290,7 +290,7 @@ func main() {
 	}()
 
 	// Set up Prometheus metrics endpoint
-
+	log.Println("Starting Prometheus metrics endpoint on port 8083")
 	http.Handle("/metrics", promhttp.Handler())
 	http.ListenAndServe("127.0.0.1:8083", nil)
 }
