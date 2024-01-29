@@ -5,12 +5,13 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,9 +43,8 @@ type VarnishStatJson struct {
 }
 
 type VarnishPlusStatJson struct {
-	Version   int                           `json:"version"`
-	Timestamp string                        `json:"timestamp"`
-	Counters  map[string]VarnishStatCounter `json:"counters"`
+	Timestamp string `json:"timestamp"`
+	Counters  map[string]VarnishStatCounter
 }
 
 func getGauge(key string, labelNames []string) *prometheus.GaugeVec {
@@ -55,7 +55,6 @@ func getGauge(key string, labelNames []string) *prometheus.GaugeVec {
 	if gauge, ok := dynamicGauges[key]; ok {
 		return gauge
 	}
-	labelNames = append(labelNames, "host")
 	// Otherwise, create a new gauge
 	gauge := prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -91,7 +90,6 @@ func getCounter(key string, labelNames []string) *prometheus.CounterVec {
 	if counter, ok := dynamicCounters[key]; ok {
 		return counter
 	}
-	labelNames = append(labelNames, "host")
 
 	// Otherwise, create a new counter
 	counter := prometheus.NewCounterVec(
@@ -219,50 +217,55 @@ func main() {
 
 			fmt.Println("Active VCL is", activeVcl)
 
-			varnishstat := exec.Command("varnishstat", "-1", "-j")
+			varnishstat := exec.Command("varnishstat", "-1")
 			// Get a pipe connected to the command's standard output.
-			varnishstatoutput, err := varnishstat.StdoutPipe()
+			varnishstatOutput, err := varnishstat.StdoutPipe()
 			if err != nil {
 				log.Fatal(err)
 			}
-
-			// Start the command.
 			if err := varnishstat.Start(); err != nil {
-				log.Fatal(err)
+				panic(err)
 			}
 
-			// Create a JSON decoder for the output.
-			decoder := json.NewDecoder(varnishstatoutput)
-			var data VarnishPlusStatJson
-			if err := decoder.Decode(&data); err != nil {
-				log.Fatal(err)
-			}
-
-			for key, counter := range data.Counters {
-				// Check the key and the flag of the counter.
-				// Goto backend
-				if strings.HasPrefix(key, "VBE."+activeVcl+".goto") && counter.Value > 0 {
-					split := strings.Split(key, ".")
-					backend := strings.TrimSuffix(strings.TrimPrefix(split[4], "("), ")")
-					director := strings.TrimSuffix(strings.TrimPrefix(split[5], "("), ")")
-					fmt.Print("backend: ", backend, " director: ", director, " value: ", counter.Value, "\n")
-					metric := getGauge("stats_backend", []string{backend, director})
-					metric.WithLabelValues(backend, director).Set(float64(counter.Value))
-				} else if strings.HasPrefix(key, "VBE."+activeVcl) && counter.Value > 0 {
-					split := strings.Split(key, ".")
-					backend := split[2]
-					director := strings.TrimSuffix(split[2], "1")
-					stat := split[3]
-					metric := getGauge("statsn_backend", []string{"backend", "director", "stat"})
-					metric.WithLabelValues(backend, director, stat, hostname).Set(float64(counter.Value))
+			scanner := bufio.NewScanner(varnishstatOutput)
+			gotoRe := regexp.MustCompile(`^.*\.goto\..*?\(([\d\.]+).*?\(([^\)]+).*\)\.(\w+).*?(\d+).[\s\d\.]+(.*)`)
+			backendRe := regexp.MustCompile(`^\w+\.\w+\.(\w+)\.(\w+)\s+(\d+)[\d\.\s]+(.*)`)
+			directorRe := regexp.MustCompile(`[-_\d]+$`)
+			for scanner.Scan() {
+				line := scanner.Text()
+				if strings.HasPrefix(line, "VBE."+activeVcl+".goto") {
+					matched := gotoRe.FindStringSubmatch(line)
+					backend := matched[1]
+					director := matched[2]
+					counter := matched[3]
+					value := matched[4]
+					valueFloat, err := strconv.ParseFloat(value, 64)
+					if err != nil {
+						valueFloat = 0
+					}
+					//					desc := matched[5]
+					metric := getGauge("stats_backend_"+counter, []string{"backend", "director", "host"})
+					metric.WithLabelValues(backend, director, hostname).Set(float64(valueFloat))
+				} else if strings.HasPrefix(line, "VBE."+activeVcl) {
+					matched := backendRe.FindStringSubmatch(line)
+					backend := matched[1]
+					director := backend
+					counter := matched[2]
+					value := matched[3]
+					valueFloat, err := strconv.ParseFloat(value, 64)
+					if err != nil {
+						valueFloat = 0
+					}
+					suffix := directorRe.FindString(director)
+					if suffix != "" {
+						director = strings.TrimSuffix(director, suffix)
+					}
+					metric := getGauge("stats_backend_"+counter, []string{"backend", "director", "host"})
+					metric.WithLabelValues(backend, director, hostname).Set(float64(valueFloat))
 				} else {
 
 				}
 				// Add more conditions as needed.
-			}
-
-			if err := varnishstat.Wait(); err != nil {
-				log.Fatal(err)
 			}
 			mutex.Unlock()
 		}
