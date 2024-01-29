@@ -47,7 +47,7 @@ type VarnishPlusStatJson struct {
 	Counters  map[string]VarnishStatCounter
 }
 
-func getGauge(key string, labelNames []string) *prometheus.GaugeVec {
+func getGauge(key string, desc string, labelNames []string) *prometheus.GaugeVec {
 	dymamicGaugesMetricsMutex.Lock()
 	defer dymamicGaugesMetricsMutex.Unlock()
 
@@ -59,7 +59,7 @@ func getGauge(key string, labelNames []string) *prometheus.GaugeVec {
 	gauge := prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: fmt.Sprintf("varnish%s", key),
-			Help: fmt.Sprintf("Gauge of key %s in varnishstat output", key),
+			Help: desc,
 		},
 		labelNames,
 	)
@@ -71,15 +71,6 @@ func getGauge(key string, labelNames []string) *prometheus.GaugeVec {
 	dynamicGauges[key] = gauge
 
 	return gauge
-}
-
-func setGaugeValue(key string, value float64) {
-	gauge, err := dynamicGauges[key].GetMetricWithLabelValues(key)
-	if err != nil {
-		// handle error
-		return
-	}
-	gauge.Set(value)
 }
 
 func getCounter(key string, labelNames []string) *prometheus.CounterVec {
@@ -231,6 +222,7 @@ func main() {
 			gotoRe := regexp.MustCompile(`^.*\.goto\..*?\(([\d\.]+).*?\(([^\)]+).*\)\.(\w+).*?(\d+).[\s\d\.]+(.*)`)
 			backendRe := regexp.MustCompile(`^\w+\.\w+\.(\w+)\.(\w+)\s+(\d+)[\d\.\s]+(.*)`)
 			directorRe := regexp.MustCompile(`[-_\d]+$`)
+			bulkRe := regexp.MustCompile(`^(.*?)\s+(\d+)[\d\.\s]+(.*)`)
 			for scanner.Scan() {
 				line := scanner.Text()
 				if strings.HasPrefix(line, "VBE."+activeVcl+".goto") {
@@ -243,8 +235,11 @@ func main() {
 					if err != nil {
 						valueFloat = 0
 					}
-					//					desc := matched[5]
-					metric := getGauge("stats_backend_"+counter, []string{"backend", "director", "host"})
+					if valueFloat == 0 {
+						continue
+					}
+					desc := matched[5]
+					metric := getGauge("stats_backend_"+counter, desc, []string{"backend", "director", "host"})
 					metric.WithLabelValues(backend, director, hostname).Set(float64(valueFloat))
 				} else if strings.HasPrefix(line, "VBE."+activeVcl) {
 					matched := backendRe.FindStringSubmatch(line)
@@ -252,18 +247,41 @@ func main() {
 					director := backend
 					counter := matched[2]
 					value := matched[3]
+					desc := matched[4]
 					valueFloat, err := strconv.ParseFloat(value, 64)
 					if err != nil {
 						valueFloat = 0
+					}
+					if valueFloat == 0 {
+						continue
 					}
 					suffix := directorRe.FindString(director)
 					if suffix != "" {
 						director = strings.TrimSuffix(director, suffix)
 					}
-					metric := getGauge("stats_backend_"+counter, []string{"backend", "director", "host"})
-					metric.WithLabelValues(backend, director, hostname).Set(float64(valueFloat))
+					if strings.HasPrefix(counter, "fail") || strings.HasPrefix(counter, "busy") {
+						failtype := strings.TrimPrefix(counter, "fail_")
+						counter = "fail"
+						metric := getGauge("stats_backend_"+counter, desc, []string{"backend", "director", "fail", "host"})
+						metric.WithLabelValues(backend, director, failtype, hostname).Set(float64(valueFloat))
+					} else {
+						metric := getGauge("stats_backend_"+counter, desc, []string{"backend", "director", "host"})
+						metric.WithLabelValues(backend, director, hostname).Set(float64(valueFloat))
+					}
 				} else {
-
+					matched := bulkRe.FindStringSubmatch(line)
+					counter := strings.ReplaceAll(matched[1], ".", "_")
+					value := matched[2]
+					valueFloat, err := strconv.ParseFloat(value, 64)
+					if err != nil {
+						valueFloat = 0
+					}
+					if valueFloat == 0 {
+						continue
+					}
+					desc := matched[3]
+					metric := getGauge("stats_"+counter, desc, []string{"host"})
+					metric.WithLabelValues(hostname).Set(float64(valueFloat))
 				}
 				// Add more conditions as needed.
 			}
