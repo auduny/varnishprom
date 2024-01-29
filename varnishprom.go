@@ -235,7 +235,7 @@ func main() {
 					if err != nil {
 						valueFloat = 0
 					}
-					if valueFloat == 0 {
+					if valueFloat == 0 && counter != "happy" && counter != "req" {
 						continue
 					}
 					desc := matched[5]
@@ -252,7 +252,7 @@ func main() {
 					if err != nil {
 						valueFloat = 0
 					}
-					if valueFloat == 0 {
+					if valueFloat == 0 && counter != "happy" && counter != "req" {
 						continue
 					}
 					suffix := directorRe.FindString(director)
@@ -276,7 +276,7 @@ func main() {
 					if err != nil {
 						valueFloat = 0
 					}
-					if valueFloat == 0 {
+					if valueFloat == 0 && counter != "happy" && counter != "req" {
 						continue
 					}
 					desc := matched[3]
