@@ -26,6 +26,8 @@ var (
 	dynamicCounters           = make(map[string]*prometheus.CounterVec)
 	dynamicCountsMetricsMutex = &sync.Mutex{}
 	hostname                  string
+	activeVcl                 = "boot"
+	parsedVcl                 = "boot"
 )
 
 // Create or get a reference to a existing gauge
@@ -171,8 +173,7 @@ func main() {
 
 			// Split the output by lines
 			lines := strings.Split(string(varnishadmOutput), "\n")
-			activeVcl := "boot"
-			parsedVcl := "boot"
+
 			// Iterate over the lines
 			for _, line := range lines {
 				// Check if the line starts with "active"
@@ -282,5 +283,8 @@ func main() {
 	// Set up Prometheus metrics endpoint
 	log.Println("Starting Prometheus metrics endpoint on port 8083")
 	http.Handle("/metrics", promhttp.Handler())
-	http.ListenAndServe("127.0.0.1:8083", nil)
+	err = http.ListenAndServe("127.0.0.1:8083", nil)
+	if err != nil {
+		log.Println("Failed to start server:", err)
+	}
 }
