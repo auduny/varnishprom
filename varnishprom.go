@@ -5,6 +5,7 @@ package main
 
 import (
 	"bufio"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -29,6 +30,11 @@ var (
 	activeVcl                 = "boot"
 	parsedVcl                 = "boot"
 )
+
+type Config struct {
+	Listen         string `json:"listen"`
+	FailOverListen string `json:"failOverListen"`
+}
 
 // Create or get a reference to a existing gauge
 
@@ -87,6 +93,8 @@ func getCounter(key string, labelNames []string) *prometheus.CounterVec {
 
 func main() {
 	fqdn, _ := os.Hostname()
+	var flagListen = flag.String("l", "127.0.0.1:8083", "Listen address for metrics endpoint, default is 127.0.0.1:8083")
+	flag.Parse()
 	hostname = strings.Split(fqdn, ".")[0]
 	// Start varnishlog as a subprocess
 	varnishlog := exec.Command("varnishlog", "-i", "VCL_Log")
@@ -284,9 +292,9 @@ func main() {
 	}()
 
 	// Set up Prometheus metrics endpoint
-	log.Println("Starting Prometheus metrics endpoint on port 8083")
+	log.Println("Starting Prometheus metrics endpoint on " + *flagListen)
 	http.Handle("/metrics", promhttp.Handler())
-	err = http.ListenAndServe("127.0.0.1:8083", nil)
+	err = http.ListenAndServe(*flagListen, nil)
 	if err != nil {
 		log.Println("Failed to start server:", err)
 	}
