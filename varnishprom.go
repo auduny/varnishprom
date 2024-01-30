@@ -28,24 +28,7 @@ var (
 	hostname                  string
 )
 
-// Define a struct to hold the data.
-type VarnishStatCounter struct {
-	Description string `json:"description"`
-	Flag        string `json:"flag"`
-	Format      string `json:"format"`
-	Value       int    `json:"value"`
-}
-
-type VarnishStatJson struct {
-	Version   int                           `json:"version"`
-	Timestamp string                        `json:"timestamp"`
-	Counters  map[string]VarnishStatCounter `json:"counters"`
-}
-
-type VarnishPlusStatJson struct {
-	Timestamp string `json:"timestamp"`
-	Counters  map[string]VarnishStatCounter
-}
+// Create or get a reference to a existing gauge
 
 func getGauge(key string, desc string, labelNames []string) *prometheus.GaugeVec {
 	dymamicGaugesMetricsMutex.Lock()
@@ -151,6 +134,7 @@ func main() {
 					labelValues = append(labelValues, labelValue)
 				}
 				labelValues = append(labelValues, hostname)
+				labelNames = append(labelNames, hostname)
 				// Get the counter for this counter name
 				counter := getCounter(counterName, labelNames)
 
@@ -188,6 +172,7 @@ func main() {
 			// Split the output by lines
 			lines := strings.Split(string(varnishadmOutput), "\n")
 			activeVcl := "boot"
+			parsedVcl := "boot"
 			// Iterate over the lines
 			for _, line := range lines {
 				// Check if the line starts with "active"
@@ -195,18 +180,20 @@ func main() {
 					// Split the line by spaces and fetch the 4th column
 					columns := strings.Fields(line)
 					if len(columns) >= 5 {
-						activeVcl = columns[4]
+						parsedVcl = columns[4]
 						break
 					} else if len(columns) >= 4 {
 						// Varnish Enterprise
-						activeVcl = columns[3]
+						parsedVcl = columns[3]
 						break
 					}
 
 				}
 			}
-
-			log.Println("Active VCL is", activeVcl)
+			if parsedVcl != activeVcl {
+				log.Println("Active VCL changed from", activeVcl, "to", parsedVcl)
+				activeVcl = parsedVcl
+			}
 
 			varnishstat := exec.Command("varnishstat", "-1")
 			// Get a pipe connected to the command's standard output.
@@ -284,6 +271,9 @@ func main() {
 					metric.WithLabelValues(hostname).Set(float64(valueFloat))
 				}
 				// Add more conditions as needed.
+			}
+			if err := varnishstat.Wait(); err != nil {
+				log.Println("Error waiting for varnishstat: ", err)
 			}
 			mutex.Unlock()
 		}
