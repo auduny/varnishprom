@@ -168,7 +168,8 @@ func main() {
 			varnishadm := exec.Command("varnishadm", "vcl.list")
 			varnishadmOutput, err := varnishadm.Output()
 			if err != nil {
-				panic(err)
+				log.Println("Error running varnishadm: ", err)
+				break
 			}
 
 			// Split the output by lines
@@ -200,10 +201,12 @@ func main() {
 			// Get a pipe connected to the command's standard output.
 			varnishstatOutput, err := varnishstat.StdoutPipe()
 			if err != nil {
-				log.Fatal(err)
+				log.Println("Failed varnishstat:", err)
+				break
 			}
 			if err := varnishstat.Start(); err != nil {
-				panic(err)
+				log.Println("Failed starting varnishstat:", err)
+				break
 			}
 
 			scanner := bufio.NewScanner(varnishstatOutput)
