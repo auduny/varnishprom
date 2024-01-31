@@ -93,7 +93,7 @@ func main() {
 	var logKey = flag.String("k", "prom", "logkey to look for promethus metrics")
 	//	var logEnabled = flag.Bool("l", true, "Start logparser, default is 'true'")
 	//	var statEnabled = flag.Bool("s", true, "Start metricsparser, default is 'true'")
-	var hostname = flag.String("h", shortName, "Hostname to use in metrics, defaults to hostname -S')")
+	var hostname = flag.String("h", shortName, "Hostname to use in metrics, defaults to hostname -S")
 	flag.Parse()
 
 	*logKey = *logKey + "="
