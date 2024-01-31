@@ -26,15 +26,9 @@ var (
 	dymamicGaugesMetricsMutex = &sync.Mutex{}
 	dynamicCounters           = make(map[string]*prometheus.CounterVec)
 	dynamicCountsMetricsMutex = &sync.Mutex{}
-	hostname                  string
 	activeVcl                 = "boot"
 	parsedVcl                 = "boot"
 )
-
-type Config struct {
-	Listen         string `json:"listen"`
-	FailOverListen string `json:"failOverListen"`
-}
 
 // Create or get a reference to a existing gauge
 
@@ -93,9 +87,16 @@ func getCounter(key string, labelNames []string) *prometheus.CounterVec {
 
 func main() {
 	fqdn, _ := os.Hostname()
-	var flagListen = flag.String("l", "127.0.0.1:8083", "Listen address for metrics endpoint, default is 127.0.0.1:8083")
+	shortName := strings.Split(fqdn, ".")[0]
+	var listen = flag.String("i", "127.0.0.1:8083", "Listen interface for metrics endpoint")
+	var path = flag.String("p", "/metrics", "Path for metrics endpoint")
+	var logKey = flag.String("k", "prom", "logkey to look for promethus metrics")
+	//	var logEnabled = flag.Bool("l", true, "Start logparser, default is 'true'")
+	//	var statEnabled = flag.Bool("s", true, "Start metricsparser, default is 'true'")
+	var hostname = flag.String("h", shortName, "Hostname to use in metrics, defaults to hostname -S')")
 	flag.Parse()
-	hostname = strings.Split(fqdn, ".")[0]
+
+	*logKey = *logKey + "="
 	// Start varnishlog as a subprocess
 	varnishlog := exec.Command("varnishlog", "-i", "VCL_Log")
 	varnishlogOutput, err := varnishlog.StdoutPipe()
@@ -108,9 +109,9 @@ func main() {
 		for scanner.Scan() {
 			line := scanner.Text()
 			// Check if the line contains 'prom:'
-			keyIndex := strings.Index(line, "prom=")
+			keyIndex := strings.Index(line, *logKey)
 			if keyIndex != -1 {
-				extracted := line[keyIndex+len("prom="):]
+				extracted := line[keyIndex+len(*logKey):]
 
 				// Split the extracted string into the counter name and labels
 				parts := strings.SplitN(extracted, " ", 2)
@@ -143,8 +144,8 @@ func main() {
 					labelNames = append(labelNames, labelName)
 					labelValues = append(labelValues, labelValue)
 				}
-				labelValues = append(labelValues, hostname)
-				labelNames = append(labelNames, hostname)
+				labelValues = append(labelValues, *hostname)
+				labelNames = append(labelNames, *hostname)
 				// Get the counter for this counter name
 				counter := getCounter(counterName, labelNames)
 
@@ -239,7 +240,7 @@ func main() {
 					}
 					desc := matched[5]
 					metric := getGauge("stats_backend_"+counter, desc, []string{"backend", "director", "host"})
-					metric.WithLabelValues(backend, director, hostname).Set(float64(valueFloat))
+					metric.WithLabelValues(backend, director, *hostname).Set(float64(valueFloat))
 				} else if strings.HasPrefix(line, "VBE."+activeVcl) {
 					matched := backendRe.FindStringSubmatch(line)
 					backend := matched[1]
@@ -262,10 +263,10 @@ func main() {
 						failtype := strings.TrimPrefix(counter, "fail_")
 						counter = "fail"
 						metric := getGauge("stats_backend_"+counter, desc, []string{"backend", "director", "fail", "host"})
-						metric.WithLabelValues(backend, director, failtype, hostname).Set(float64(valueFloat))
+						metric.WithLabelValues(backend, director, failtype, *hostname).Set(float64(valueFloat))
 					} else {
 						metric := getGauge("stats_backend_"+counter, desc, []string{"backend", "director", "host"})
-						metric.WithLabelValues(backend, director, hostname).Set(float64(valueFloat))
+						metric.WithLabelValues(backend, director, *hostname).Set(float64(valueFloat))
 					}
 				} else {
 					matched := bulkRe.FindStringSubmatch(line)
@@ -280,7 +281,7 @@ func main() {
 					}
 					desc := matched[3]
 					metric := getGauge("stats_"+counter, desc, []string{"host"})
-					metric.WithLabelValues(hostname).Set(float64(valueFloat))
+					metric.WithLabelValues(*hostname).Set(float64(valueFloat))
 				}
 				// Add more conditions as needed.
 			}
@@ -292,9 +293,9 @@ func main() {
 	}()
 
 	// Set up Prometheus metrics endpoint
-	log.Println("Starting Prometheus metrics endpoint on " + *flagListen)
-	http.Handle("/metrics", promhttp.Handler())
-	err = http.ListenAndServe(*flagListen, nil)
+	log.Println("Starting Prometheus metrics endpoint on " + *listen)
+	http.Handle(*path, promhttp.Handler())
+	err = http.ListenAndServe(*listen, nil)
 	if err != nil {
 		log.Println("Failed to start server:", err)
 	}
