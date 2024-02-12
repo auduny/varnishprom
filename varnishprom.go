@@ -147,7 +147,7 @@ func main() {
 						labelValues = append(labelValues, labelValue)
 					}
 					labelValues = append(labelValues, *hostname)
-					labelNames = append(labelNames, *hostname)
+					labelNames = append(labelNames, "host")
 					// Get the counter for this counter name
 					counter := getCounter(counterName, labelNames)
 

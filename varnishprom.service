@@ -1,0 +1,14 @@
+[Unit]
+Description=Varnishlog prometheus exporter
+After=varnish.service
+
+[Service]
+RuntimeDirectory=varnishprom
+User=varnish
+Group=varnish
+ExecStart=/usr/bin/varnishprom -i 0.0.0.0:7083 -l
+Restart=always
+RestartSec=10s
+
+[Install]
+WantedBy=multi-user.target
