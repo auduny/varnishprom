@@ -71,7 +71,7 @@ func getCounter(key string, labelNames []string) *prometheus.CounterVec {
 	counter := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: fmt.Sprintf("varnish%s", key),
-			Help: fmt.Sprintf("Counts of key %s in varnishlog output", key),
+			Help: fmt.Sprintf("Counts of key varnish%s", key),
 		},
 		labelNames,
 	)
@@ -88,7 +88,7 @@ func getCounter(key string, labelNames []string) *prometheus.CounterVec {
 func main() {
 	fqdn, _ := os.Hostname()
 	shortName := strings.Split(fqdn, ".")[0]
-	var listen = flag.String("i", "127.0.0.1:8083", "Listen interface for metrics endpoint")
+	var listen = flag.String("i", "127.0.0.1:7083", "Listen interface for metrics endpoint")
 	var path = flag.String("p", "/metrics", "Path for metrics endpoint")
 	var logKey = flag.String("k", "prom", "logkey to look for promethus metrics")
 	var logEnabled = flag.Bool("l", false, "Start varnishlog parser")
