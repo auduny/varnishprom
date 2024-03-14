@@ -2,7 +2,7 @@
 
 This [Varnish](https://varnish-cache.org/) prometheus exporter exposes metrics gathered from the Varnish shared memory log AND from Varnish internal counters (varnishstat) depending on the flags used.
 
-## Usecase 
+## Use case 
 
 Most prometheus exporters for varnish will just parse and export the `varnishstat` metrics. This exporter also parses the `varnishlog` and exports the metrics from the log. This is useful for monitoring exactly what you want from within VCL by adding `std.log("<keyword>=<metricname> label1=<value> label2=<value>")` to the part of the VCL you like to create a counter for
 
