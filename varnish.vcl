@@ -3,11 +3,11 @@ import std;
 import directors;
 
 backend chaos1 {
-        .host = "127.0.0.1:8080";
+        .host = "chaosbackend:8180";
 }
 
 backend chaos2 {
-        .host = "127.0.0.1:8081";
+        .host = "chaosbackend:8180";
 }
 
 sub vcl_init {

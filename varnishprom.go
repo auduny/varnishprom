@@ -93,6 +93,9 @@ func main() {
 	var logKey = flag.String("k", "prom", "logkey to look for promethus metrics")
 	var logEnabled = flag.Bool("l", false, "Start varnishlog parser")
 	var statEnabled = flag.Bool("s", false, "Start varnshstats parser")
+	var adminHost = flag.String("T", "", "Varnish admin interface")
+	var secretsFile = flag.String("S", "/etc/varnish/secretsfile", "Varnish ")
+
 	var hostname = flag.String("h", shortName, "Hostname to use in metrics, defaults to hostname -S")
 	flag.Parse()
 
@@ -178,10 +181,17 @@ func main() {
 				}
 
 				// Run the varnishadm command
-				varnishadm := exec.Command("varnishadm", "vcl.list")
+				var varnishadm *exec.Cmd
+				if *adminHost != "" {
+					varnishadm = exec.Command("varnishadm", "-T", *adminHost, "-S", *secretsFile, "vcl.list")
+				} else {
+					varnishadm = exec.Command("varnishadm", "vcl.list")
+				}
 				varnishadmOutput, err := varnishadm.Output()
+
 				if err != nil {
 					log.Println("Error running varnishadm: ", err)
+					log.Println("varnishadm", "-T", *adminHost, "vcl.list", "-S", *secretsFile)
 					break
 				}
 
@@ -221,8 +231,10 @@ func main() {
 					log.Println("Failed starting varnishstat:", err)
 					break
 				}
-
 				scanner := bufio.NewScanner(varnishstatOutput)
+				// VBE.boot.goto.00000928.(52.2.2.2).(http://foobar.s3-website.eu-central-1.amazonaws.com:80).(ttl:10.000000).happy
+				// VBE.boot.vglive_web_01.happy
+				// VBE.boot.udo.vg_foobar_udo.(sa4:10.2.3.4:3005).happy
 				gotoRe := regexp.MustCompile(`^.*\.goto\..*?\(([\d\.]+).*?\(([^\)]+).*\)\.(\w+).*?(\d+).[\s\d\.]+(.*)`)
 				backendRe := regexp.MustCompile(`^\w+\.\w+\.(\w+)\.(\w+)\s+(\d+)[\d\.\s]+(.*)`)
 				directorRe := regexp.MustCompile(`[-_\d]+$`)

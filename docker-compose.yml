@@ -1,0 +1,49 @@
+version: '3'
+
+services:
+  varnish:
+    hostname: varnish
+    image: varnish:7.4
+    volumes:
+      - "./varnish.vcl:/etc/varnish/default.vcl" # Configuration file
+      - "./secretsfile:/etc/varnish/secretsfile" # Secrets file
+      - "shared:/var/lib/varnish" # Shared memory location
+
+    ports:
+      - "8080:80"
+      - "6081:6081"
+    command: -T 0.0.0.0:6081 -S /etc/varnish/secretsfile
+    depends_on:
+      - chaosbackend
+
+
+  chaosbackend:
+    image: ghcr.io/auduny/chaosbackend:v0.8
+    ports:
+      - "8180:8180"
+      - "8181:8181"      
+    command: -a 0.0.0.0 -p 8180,8181
+
+  prometheus:
+    image: prom/prometheus:v2.50.1
+    volumes:
+      - "./prometheus.yml:/etc/prometheus/prometheus.yml" # Configuration file
+    ports:
+      - "9090:9090"
+    depends_on:
+      - varnishprom
+
+  varnishprom:
+    hostname: varnishprom
+    build: . # Assuming Dockerfile is in the same directory
+    volumes:
+      - "shared:/var/lib/varnish" # Shared memory location
+      - "./secretsfile:/etc/varnish/secretsfile" # Secrets file
+    depends_on:
+      - varnish
+    ports:
+      - "7083:7083"
+    command: -l -s -i 0.0.0.0:7083 -T varnish:6081 -S /etc/varnish/secretsfile 
+
+volumes:
+  shared: # Define shared volume
