@@ -5,14 +5,15 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,36 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+type Metric struct {
+	Description string `json:"description"`
+	Type        string `json:"flag"`
+	Format      string `json:"format"`
+	Value       int    `json:"value"`
+}
+
+type VarnishStats74 struct {
+	Version   int               `json:"version"`
+	Timestamp string            `json:"timestamp"`
+	Metrics   map[string]Metric `json:"counters"`
+}
+
+type VarnishStats60 struct {
+	//	Timestamp string `json:"-"`
+	Metrics map[string]Metric
+}
+
+type VarnishStats interface {
+	GetMetrics() map[string]Metric
+}
+
+func (v VarnishStats60) GetMetrics() map[string]Metric {
+	return v.Metrics
+}
+
+func (v VarnishStats74) GetMetrics() map[string]Metric {
+	return v.Metrics
+}
+
 var (
 	dynamicGauges             = make(map[string]*prometheus.GaugeVec)
 	dymamicGaugesMetricsMutex = &sync.Mutex{}
@@ -28,6 +59,8 @@ var (
 	dynamicCountsMetricsMutex = &sync.Mutex{}
 	activeVcl                 = "boot"
 	parsedVcl                 = "boot"
+	varnishVersion            = "varnish-6.0.12"
+	commitHash                = ""
 )
 
 // Create or get a reference to a existing gauge
@@ -58,7 +91,7 @@ func getGauge(key string, desc string, labelNames []string) *prometheus.GaugeVec
 	return gauge
 }
 
-func getCounter(key string, labelNames []string) *prometheus.CounterVec {
+func getCounter(key string, desc string, labelNames []string) *prometheus.CounterVec {
 	dynamicCountsMetricsMutex.Lock()
 	defer dynamicCountsMetricsMutex.Unlock()
 
@@ -71,7 +104,7 @@ func getCounter(key string, labelNames []string) *prometheus.CounterVec {
 	counter := prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: fmt.Sprintf("varnish%s", key),
-			Help: fmt.Sprintf("Counts of key varnish%s", key),
+			Help: desc,
 		},
 		labelNames,
 	)
@@ -93,15 +126,34 @@ func main() {
 	var logKey = flag.String("k", "prom", "logkey to look for promethus metrics")
 	var logEnabled = flag.Bool("l", false, "Start varnishlog parser")
 	var statEnabled = flag.Bool("s", false, "Start varnshstats parser")
+	//	var varnishPath = flag.String("P", fqdn, "Path to varnish data")
 	var adminHost = flag.String("T", "", "Varnish admin interface")
-	var secretsFile = flag.String("S", "/etc/varnish/secretsfile", "Varnish ")
+	var gitCheck = flag.String("g", "", "Check git commit hash of given directory")
+	var secretsFile = flag.String("S", "/etc/varnish/secretsfile", "Varnish admin secret file")
+	var logLevel = flag.String("v", "info", "Log level")
 
 	var hostname = flag.String("h", shortName, "Hostname to use in metrics, defaults to hostname -S")
 	flag.Parse()
 
-	*logKey = *logKey + "="
+	var slogLevel = new(slog.LevelVar)
+
+	switch *logLevel {
+	case "debug":
+		slogLevel.Set(slog.LevelDebug)
+	case "info":
+		slogLevel.Set(slog.LevelInfo)
+	case "warn":
+		slogLevel.Set(slog.LevelWarn)
+	case "error":
+		slogLevel.Set(slog.LevelError)
+	default:
+		slogLevel.Set(slog.LevelError)
+		slog.Error(fmt.Sprintf("Invalid log level: %s", *logLevel))
+		os.Exit(1)
+	}
+
 	if *logEnabled {
-		log.Println("Starting varnishlog parser, looking for '" + *logKey + "' keywords")
+		slog.Info("Starting varnishlog parser, looking for '" + *logKey + "' keywords")
 		// Start varnishlog as a subprocess
 		varnishlog := exec.Command("varnishlog", "-i", "VCL_Log")
 		varnishlogOutput, err := varnishlog.StdoutPipe()
@@ -113,10 +165,10 @@ func main() {
 		go func() {
 			for scanner.Scan() {
 				line := scanner.Text()
-				// Check if the line contains 'prom:'
-				keyIndex := strings.Index(line, *logKey)
+				// Check if the line contains 'prom='
+				keyIndex := strings.Index(line, *logKey+"=")
 				if keyIndex != -1 {
-					extracted := line[keyIndex+len(*logKey):]
+					extracted := line[keyIndex+len(*logKey)+1:]
 
 					// Split the extracted string into the counter name and labels
 					parts := strings.SplitN(extracted, " ", 2)
@@ -127,7 +179,7 @@ func main() {
 
 					counterName := "log_" + strings.TrimSpace(parts[0])
 					labels := strings.TrimSpace(parts[1])
-
+					desc := "Varnishlog Counter"
 					// Split the labels into pairs
 					labelPairs := strings.Split(labels, ",")
 
@@ -144,7 +196,9 @@ func main() {
 
 						labelName := pairParts[0]
 						labelValue := pairParts[1]
-
+						if labelName == "desc" {
+							desc = labelValue
+						}
 						// Add the label name and value to the slices
 						labelNames = append(labelNames, labelName)
 						labelValues = append(labelValues, labelValue)
@@ -152,7 +206,7 @@ func main() {
 					labelValues = append(labelValues, *hostname)
 					labelNames = append(labelNames, "host")
 					// Get the counter for this counter name
-					counter := getCounter(counterName, labelNames)
+					counter := getCounter(counterName, desc, labelNames)
 
 					// Increment the counter with the label values
 					counter.WithLabelValues(labelValues...).Inc()
@@ -163,10 +217,10 @@ func main() {
 		varnishlog.Start()
 	}
 	if *statEnabled {
-		log.Print("Starting varnishstats parser")
+		slog.Info("Starting varnishstats parser")
 		ticker := time.NewTicker(10 * time.Second)
 		defer ticker.Stop()
-		defer log.Println("Program is exiting")
+		defer slog.Info("Program is exiting")
 
 		// Create a mutex
 		var mutex sync.Mutex
@@ -176,27 +230,69 @@ func main() {
 				// Try to lock the mutex
 				if !mutex.TryLock() {
 					// If the mutex is already locked, skip this tick
-					log.Println("Mutex is locked, skipping tick, we might have a problem")
+					slog.Warn("Mutex is locked, skipping tick, we might have a problem")
 					continue
 				}
 
 				// Run the varnishadm command
 				var varnishadm *exec.Cmd
+
+				if *adminHost != "" {
+					varnishadm = exec.Command("varnishadm", "-T", *adminHost, "-S", *secretsFile, "banner")
+				} else {
+					varnishadm = exec.Command("varnishadm", "banner")
+				}
+				varnishadmOutput, err := varnishadm.Output()
+
+				if err != nil {
+					slog.Warn("Error running varnishadm: ", err)
+					slog.Warn(fmt.Sprintf("varnishadm -T %s -S %s banner", *adminHost, *secretsFile))
+					break
+				}
+
+				lines := strings.Split(string(varnishadmOutput), "\n")
+
+				for _, line := range lines {
+					// Check if the line starts with "active"
+					if strings.HasPrefix(line, "varnish") {
+						// Split the line by spaces and fetch the 4th column
+						columns := strings.Fields(line)
+						varnishVersion = columns[0]
+					}
+				}
+				// Get Commit hash if needed
+				if *gitCheck != "" {
+					// og -n 1 --pretty=format:"%H"
+					gitCmd := exec.Command("git", "-C", *gitCheck, "log", "-n", "1", "--pretty=format:%H")
+					gitCmdOutput, err := gitCmd.Output()
+					if err != nil {
+						slog.Warn("Error running git: ", "err", err)
+						break
+					}
+					commitHash = string(gitCmdOutput)
+					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "githash"})
+					prommetric.WithLabelValues(varnishVersion, commitHash).Set(1)
+				} else {
+					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version"})
+					prommetric.WithLabelValues(varnishVersion).Set(1)
+				}
+				// Get the active VCL
+
 				if *adminHost != "" {
 					varnishadm = exec.Command("varnishadm", "-T", *adminHost, "-S", *secretsFile, "vcl.list")
 				} else {
 					varnishadm = exec.Command("varnishadm", "vcl.list")
 				}
-				varnishadmOutput, err := varnishadm.Output()
+				varnishadmOutput, err = varnishadm.Output()
 
 				if err != nil {
-					log.Println("Error running varnishadm: ", err)
-					log.Println("varnishadm", "-T", *adminHost, "vcl.list", "-S", *secretsFile)
+					slog.Warn("Error running varnishadm: ", err)
+					slog.Warn(fmt.Sprintf("varnishadm -T %s -S %s vcl.list ", *adminHost, *secretsFile))
 					break
 				}
 
 				// Split the output by lines
-				lines := strings.Split(string(varnishadmOutput), "\n")
+				lines = strings.Split(string(varnishadmOutput), "\n")
 
 				// Iterate over the lines
 				for _, line := range lines {
@@ -216,93 +312,131 @@ func main() {
 					}
 				}
 				if parsedVcl != activeVcl {
-					log.Println("Active VCL changed from", activeVcl, "to", parsedVcl)
+					slog.Info("Active VCL changed from %s to %s", activeVcl, parsedVcl)
 					activeVcl = parsedVcl
 				}
 
-				varnishstat := exec.Command("varnishstat", "-1")
+				varnishstat := exec.Command("varnishstat", "-1", "-j")
 				// Get a pipe connected to the command's standard output.
 				varnishstatOutput, err := varnishstat.StdoutPipe()
 				if err != nil {
-					log.Println("Failed varnishstat:", err)
+					slog.Warn("Failed varnishstat:", err)
 					break
 				}
 				if err := varnishstat.Start(); err != nil {
-					log.Println("Failed starting varnishstat:", err)
+					slog.Warn("Failed starting varnishstat:", err)
 					break
 				}
-				scanner := bufio.NewScanner(varnishstatOutput)
+
+				var stats VarnishStats
+				if strings.Contains(varnishVersion, "6.0") {
+					slog.Debug("Using varnish 6.0 json-parsing")
+					// We need to remove the dreaded timestamp line from varnishstat
+					var filteredOutput bytes.Buffer
+					scanner := bufio.NewScanner(varnishstatOutput)
+					for scanner.Scan() {
+						line := scanner.Text()
+						if !strings.Contains(line, "timestamp") {
+							filteredOutput.WriteString(line)
+							filteredOutput.WriteString("\n")
+						}
+					}
+					decoder := json.NewDecoder(bufio.NewReader(&filteredOutput))
+					var stats6 VarnishStats60
+					err = decoder.Decode(&stats6.Metrics)
+					stats = stats6
+				} else {
+					var stats7 VarnishStats74
+					decoder := json.NewDecoder(varnishstatOutput)
+					err = decoder.Decode(&stats7)
+					stats = stats7
+				}
+				if err != nil {
+					slog.Warn("Can't decode json from varnishstat", "error", err)
+					return
+				}
 				// VBE.boot.goto.00000928.(52.2.2.2).(http://foobar.s3-website.eu-central-1.amazonaws.com:80).(ttl:10.000000).happy
 				// VBE.boot.vglive_web_01.happy
 				// VBE.boot.udo.vg_foobar_udo.(sa4:10.2.3.4:3005).happy
-				gotoRe := regexp.MustCompile(`^.*\.goto\..*?\(([\d\.]+).*?\(([^\)]+).*\)\.(\w+).*?(\d+).[\s\d\.]+(.*)`)
-				backendRe := regexp.MustCompile(`^\w+\.\w+\.(\w+)\.(\w+)\s+(\d+)[\d\.\s]+(.*)`)
+				gotoRe := regexp.MustCompile(`^.*\.goto\..*?\(([\d\.]+).*?\(([^\)]+).*\)\.(\w+)`)
+				udoRe := regexp.MustCompile(`^.*\.udo\..*?\((\w+):(\d+\.\d+\.\d+\.\d+):(\d+)\)\.(\w+)`)
+				backendRe := regexp.MustCompile(`^\w+\.\w+\.(\w+)\.(\w+)`)
 				directorRe := regexp.MustCompile(`[-_\d]+$`)
-				bulkRe := regexp.MustCompile(`^(.*?)\s+(\d+)[\d\.\s]+(.*)`)
-				for scanner.Scan() {
-					line := scanner.Text()
-					if strings.HasPrefix(line, "VBE."+activeVcl+".goto") {
-						matched := gotoRe.FindStringSubmatch(line)
-						backend := matched[1]
-						director := matched[2]
-						counter := matched[3]
-						value := matched[4]
-						valueFloat, err := strconv.ParseFloat(value, 64)
-						if err != nil {
-							valueFloat = 0
-						}
-						if valueFloat == 0 && counter != "happy" && counter != "req" {
+				//				bulkRe := regexp.MustCompile(`^(.*?)\s+(\d+)[\d\.\s]+(.*)`)
+				metrics := stats.GetMetrics()
+				for key, metric := range metrics {
+					if metric.Type == "c" {
+						if metric.Value == 0 && !strings.HasSuffix(key, ".req") {
+							// skip enpty counters except req
 							continue
 						}
-						desc := matched[5]
-						metric := getGauge("stats_backend_"+counter, desc, []string{"backend", "director", "host"})
-						metric.WithLabelValues(backend, director, *hostname).Set(float64(valueFloat))
-					} else if strings.HasPrefix(line, "VBE."+activeVcl) {
-						matched := backendRe.FindStringSubmatch(line)
-						backend := matched[1]
-						director := backend
-						counter := matched[2]
-						value := matched[3]
-						desc := matched[4]
-						valueFloat, err := strconv.ParseFloat(value, 64)
-						if err != nil {
-							valueFloat = 0
-						}
-						if valueFloat == 0 && counter != "happy" && counter != "req" {
-							continue
-						}
-						suffix := directorRe.FindString(director)
-						if suffix != "" {
-							director = strings.TrimSuffix(director, suffix)
-						}
-						if strings.HasPrefix(counter, "fail") || strings.HasPrefix(counter, "busy") {
-							failtype := strings.TrimPrefix(counter, "fail_")
-							counter = "fail"
-							metric := getGauge("stats_backend_"+counter, desc, []string{"backend", "director", "fail", "host"})
-							metric.WithLabelValues(backend, director, failtype, *hostname).Set(float64(valueFloat))
+					}
+					if strings.HasPrefix(key, "VBE."+activeVcl) {
+						// We are in backend land
+						var backend, director, counter, backendtype string
+
+						if strings.HasPrefix(key, "VBE."+activeVcl+".udo") {
+							slog.Info("UDO", key, metric.Value)
+							backendtype = "udo"
+							matched := udoRe.FindStringSubmatch(key)
+							backend = matched[1]
+							director = matched[2]
+							counter = matched[3]
+						} else if strings.HasPrefix(key, "VBE."+activeVcl+".goto") {
+							slog.Info("GOTO", key, metric.Value)
+							backendtype = "goto"
+							matched := gotoRe.FindStringSubmatch(key)
+							backend = matched[1]
+							director = matched[2]
+							counter = matched[3]
 						} else {
-							metric := getGauge("stats_backend_"+counter, desc, []string{"backend", "director", "host"})
-							metric.WithLabelValues(backend, director, *hostname).Set(float64(valueFloat))
+							backendtype = "single"
+							matched := backendRe.FindStringSubmatch(key)
+							backend = matched[1]
+							director = backend
+							suffix := directorRe.FindString(director)
+							if suffix != "" {
+								director = strings.TrimSuffix(director, suffix)
+								backendtype = "simple"
+							}
+							counter = matched[2]
 						}
+						if metric.Type == "c" {
+							// Concatenate the failscenarios
+							if strings.HasPrefix(counter, "fail_") {
+								failtype := strings.TrimPrefix(counter, "fail_")
+								counter = "failstate"
+								prommetric := getCounter("stats_backend_"+counter, metric.Description, []string{"backend", "director", "fail", "host", "type"})
+								prommetric.WithLabelValues(backend, director, failtype, *hostname, backendtype).Add(float64(metric.Value))
+							} else {
+								prommetric := getCounter("stats_backend_"+counter, metric.Description, []string{"backend", "director", "host", "type"})
+								prommetric.WithLabelValues(backend, director, *hostname, backendtype).Add(float64(metric.Value))
+							}
+						} else if metric.Type == "g" {
+							prommetric := getGauge("stats_backend_"+counter, metric.Description, []string{"backend", "director", "host", "type"})
+							prommetric.WithLabelValues(backend, director, *hostname, backendtype).Set(float64(metric.Value))
+						}
+
 					} else {
-						matched := bulkRe.FindStringSubmatch(line)
-						counter := strings.ReplaceAll(matched[1], ".", "_")
-						value := matched[2]
-						valueFloat, err := strconv.ParseFloat(value, 64)
-						if err != nil {
-							valueFloat = 0
-						}
+						counter := strings.ReplaceAll(key, ".", "_")
+						valueFloat := float64(metric.Value)
 						if valueFloat == 0 && counter != "happy" && counter != "req" {
 							continue
 						}
-						desc := matched[3]
-						metric := getGauge("stats_"+counter, desc, []string{"host"})
-						metric.WithLabelValues(*hostname).Set(float64(valueFloat))
+						if metric.Type == "g" {
+							prommetric := getGauge("stats_"+counter, metric.Description, []string{"host"})
+							prommetric.WithLabelValues(*hostname).Set(float64(valueFloat))
+						} else if metric.Type == "c" {
+							prommetric := getCounter("stats_"+counter, metric.Description, []string{"host"})
+							prommetric.WithLabelValues(*hostname).Add(float64(valueFloat))
+						} else {
+							slog.Info("Unknown metric type", "metrictype", metric.Type)
+						}
 					}
 					// Add more conditions as needed.
 				}
 				if err := varnishstat.Wait(); err != nil {
-					log.Println("Error waiting for varnishstat: ", err)
+					slog.Warn("Error waiting for varnishstat: ", err)
 				}
 				mutex.Unlock()
 			}
@@ -311,14 +445,14 @@ func main() {
 
 	if *statEnabled || *logEnabled {
 		// Set up Prometheus metrics endpoint
-		log.Println("Starting Prometheus metrics endpoint on " + *listen + *path)
+		slog.Info("Starting Prometheus metrics endpoint on " + *listen + *path)
 		http.Handle(*path, promhttp.Handler())
 		err := http.ListenAndServe(*listen, nil)
 		if err != nil {
-			log.Println("Failed to start server:", err)
+			slog.Error("Failed to start server:", err)
 		}
 	} else {
-		log.Print("Not starting log or statsparser. Enable -l (log) -s (stats) or both on the commandline")
+		slog.Error("Not starting log or statsparser. Enable -l (log) -s (stats) or both on the commandline")
 		os.Exit(1)
 	}
 }
