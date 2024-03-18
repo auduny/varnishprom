@@ -44,6 +44,11 @@ type VarnishStats interface {
 	GetMetrics() map[string]Metric
 }
 
+type PromCounter struct {
+	counterVec *prometheus.CounterVec
+	lastValue  uint64
+}
+
 func (v VarnishStats60) GetMetrics() map[string]Metric {
 	return v.Metrics
 }
@@ -55,7 +60,7 @@ func (v VarnishStats74) GetMetrics() map[string]Metric {
 var (
 	dynamicGauges             = make(map[string]*prometheus.GaugeVec)
 	dymamicGaugesMetricsMutex = &sync.Mutex{}
-	dynamicCounters           = make(map[string]*prometheus.CounterVec)
+	dynamicCounters           = make(map[string]*PromCounter)
 	dynamicCountsMetricsMutex = &sync.Mutex{}
 	activeVcl                 = "boot"
 	parsedVcl                 = "boot"
@@ -91,7 +96,7 @@ func getGauge(key string, desc string, labelNames []string) *prometheus.GaugeVec
 	return gauge
 }
 
-func getCounter(key string, desc string, labelNames []string) *prometheus.CounterVec {
+func getCounter(key string, desc string, labelNames []string) *PromCounter {
 	dynamicCountsMetricsMutex.Lock()
 	defer dynamicCountsMetricsMutex.Unlock()
 
@@ -101,7 +106,8 @@ func getCounter(key string, desc string, labelNames []string) *prometheus.Counte
 	}
 
 	// Otherwise, create a new counter
-	counter := prometheus.NewCounterVec(
+	var counter = new(PromCounter)
+	counter.counterVec = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: fmt.Sprintf("varnish%s", key),
 			Help: desc,
@@ -110,7 +116,7 @@ func getCounter(key string, desc string, labelNames []string) *prometheus.Counte
 	)
 
 	// Register the new counter
-	prometheus.MustRegister(counter)
+	prometheus.MustRegister(counter.counterVec)
 
 	// Store the new counter in the map
 	dynamicCounters[key] = counter
@@ -208,7 +214,7 @@ func main() {
 					counter := getCounter(counterName, desc, labelNames)
 
 					// Increment the counter with the label values
-					counter.WithLabelValues(labelValues...).Inc()
+					counter.counterVec.WithLabelValues(labelValues...).Inc()
 				}
 			}
 		}()
@@ -403,10 +409,12 @@ func main() {
 								failtype := strings.TrimPrefix(counter, "fail_")
 								counter = "failstate"
 								prommetric := getCounter("stats_backend_"+counter, metric.Description, []string{"backend", "director", "fail", "host", "type"})
-								prommetric.WithLabelValues(backend, director, failtype, *hostname, backendtype).Add(float64(metric.Value))
+								prommetric.counterVec.WithLabelValues(backend, director, failtype, *hostname, backendtype).Add(float64(metric.Value - uint64(prommetric.lastValue)))
+								prommetric.lastValue = metric.Value
 							} else {
 								prommetric := getCounter("stats_backend_"+counter, metric.Description, []string{"backend", "director", "host", "type"})
-								prommetric.WithLabelValues(backend, director, *hostname, backendtype).Add(float64(metric.Value))
+								prommetric.counterVec.WithLabelValues(backend, director, *hostname, backendtype).Add(float64(metric.Value - uint64(prommetric.lastValue)))
+								prommetric.lastValue = metric.Value
 							}
 						} else if metric.Type == "g" {
 							prommetric := getGauge("stats_backend_"+counter, metric.Description, []string{"backend", "director", "host", "type"})
@@ -415,16 +423,13 @@ func main() {
 
 					} else {
 						counter := strings.ReplaceAll(key, ".", "_")
-						valueFloat := float64(metric.Value)
-						if valueFloat == 0 && counter != "happy" && counter != "req" {
-							continue
-						}
 						if metric.Type == "g" {
 							prommetric := getGauge("stats_"+counter, metric.Description, []string{"host"})
-							prommetric.WithLabelValues(*hostname).Set(float64(valueFloat))
+							prommetric.WithLabelValues(*hostname).Set(float64(metric.Value))
 						} else if metric.Type == "c" {
 							prommetric := getCounter("stats_"+counter, metric.Description, []string{"host"})
-							prommetric.WithLabelValues(*hostname).Add(float64(valueFloat))
+							prommetric.counterVec.WithLabelValues(*hostname).Add(float64(metric.Value - uint64(prommetric.lastValue)))
+							prommetric.lastValue = metric.Value
 						} else {
 							slog.Debug("Unknown metric type", "metrictype", metric.Type)
 						}
