@@ -269,11 +269,11 @@ func main() {
 						break
 					}
 					commitHash = string(gitCmdOutput)
-					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "githash"})
-					prommetric.WithLabelValues(varnishVersion, commitHash).Set(1)
+					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "githash", "host"})
+					prommetric.WithLabelValues(varnishVersion, commitHash, *hostname).Set(1)
 				} else {
 					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version"})
-					prommetric.WithLabelValues(varnishVersion).Set(1)
+					prommetric.WithLabelValues(varnishVersion, *hostname).Set(1)
 				}
 				// Get the active VCL
 
