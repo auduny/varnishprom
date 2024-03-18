@@ -6,7 +6,7 @@ After=varnish.service
 RuntimeDirectory=varnishprom
 User=varnish
 Group=varnish
-ExecStart=/usr/bin/varnishprom -i 0.0.0.0:7083 -l
+ExecStart=/usr/bin/varnishprom -i 0.0.0.0:7083 -l -s 
 Restart=always
 RestartSec=10s
 
