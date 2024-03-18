@@ -3,11 +3,11 @@ import std;
 import directors;
 
 backend chaos1 {
-        .host = "127.0.0.1:8180";
+        .host = "chaosbackend:8180";
 }
 
 backend chaos2 {
-        .host = "127.0.0.1:8180";
+        .host = "chaosbackend:8180";
 }
 
 sub vcl_init {
@@ -52,7 +52,7 @@ sub vcl_backend_response {
 sub vcl_deliver {
 	set resp.http.V-Cache = req.http.V-Cache + ":" + obj.hits;
 	set resp.http.V-Director = req.http.X-Director;
-	std.log("prom=backends backend=" + resp.http.V-Backend + ",director="+ resp.http.V-Director + ",cache=" + req.http.V-Cache + ",status=" + resp.status +",desc=vcl_deliver");
+	std.log("prom=backends backend=" + resp.http.V-Backend + ",director="+ resp.http.V-Director + ",cache=" + req.http.V-Cache + ",status=" + resp.status);
 }
 
 sub vcl_synth {
