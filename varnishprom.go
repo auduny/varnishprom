@@ -17,9 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/VictoriaMetrics/metrics"
 )
 
 type Metric struct {
@@ -53,9 +51,9 @@ func (v VarnishStats74) GetMetrics() map[string]Metric {
 }
 
 var (
-	dynamicGauges             = make(map[string]*prometheus.GaugeVec)
+	dynamicGauges             = make(map[string]*metrics.Gauge)
 	dymamicGaugesMetricsMutex = &sync.Mutex{}
-	dynamicCounters           = make(map[string]*prometheus.CounterVec)
+	dynamicCounters           = make(map[string]*metrics.Counter)
 	dynamicCountsMetricsMutex = &sync.Mutex{}
 	activeVcl                 = "boot"
 	parsedVcl                 = "boot"
@@ -65,7 +63,7 @@ var (
 
 // Create or get a reference to a existing gauge
 
-func getGauge(key string, desc string, labelNames []string) *prometheus.GaugeVec {
+func getGauge(key string, desc string, labelNames []string) *metrics.Gauge {
 	dymamicGaugesMetricsMutex.Lock()
 	defer dymamicGaugesMetricsMutex.Unlock()
 
@@ -74,8 +72,8 @@ func getGauge(key string, desc string, labelNames []string) *prometheus.GaugeVec
 		return gauge
 	}
 	// Otherwise, create a new gauge
-	gauge := prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
+	gauge := metrics.NewGauge(
+		metrics.{
 			Name: fmt.Sprintf("varnish%s", key),
 			Help: desc,
 		},
@@ -403,6 +401,7 @@ func main() {
 								failtype := strings.TrimPrefix(counter, "fail_")
 								counter = "failstate"
 								prommetric := getCounter("stats_backend_"+counter, metric.Description, []string{"backend", "director", "fail", "host", "type"})
+
 								prommetric.WithLabelValues(backend, director, failtype, *hostname, backendtype).Add(float64(metric.Value))
 							} else {
 								prommetric := getCounter("stats_backend_"+counter, metric.Description, []string{"backend", "director", "host", "type"})
@@ -442,7 +441,8 @@ func main() {
 	if *statEnabled || *logEnabled {
 		// Set up Prometheus metrics endpoint
 		slog.Info("Starting Prometheus metrics endpoint on " + *listen + *path)
-		http.Handle(*path, promhttp.Handler())
+		http.Handle(*path, func(w http.ResponseWriter, req *http.Request) {
+			metrics.WritePrometheus(w, true))
 		err := http.ListenAndServe(*listen, nil)
 		if err != nil {
 			slog.Error("Failed to start server:", err)
