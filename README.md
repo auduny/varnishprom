@@ -25,8 +25,12 @@ A full working vcl example to count hits/misses for each backend is [here](varni
 ```
 ./varnishprom --help
 Usage of ./varnishprom:
+❯ ./varnishprom --help                                     
+Usage of ./varnishprom:
+  -a string
+        Varnish admin interface (default "127.0.0.1:42717")
   -h string
-        Hostname to use in metrics, defaults to hostname -S (default "<yourhostname>")
+        Hostname to use in metrics, defaults to hostname -S (default "airmone")
   -i string
         Listen interface for metrics endpoint (default "127.0.0.1:7083")
   -k string

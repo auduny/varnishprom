@@ -26,7 +26,7 @@ type Metric struct {
 	Description string `json:"description"`
 	Type        string `json:"flag"`
 	Format      string `json:"format"`
-	Value       int    `json:"value"`
+	Value       uint64 `json:"value"`
 }
 
 type VarnishStats74 struct {
@@ -131,7 +131,6 @@ func main() {
 	var gitCheck = flag.String("g", "", "Check git commit hash of given directory")
 	var secretsFile = flag.String("S", "/etc/varnish/secretsfile", "Varnish admin secret file")
 	var logLevel = flag.String("v", "info", "Log level")
-
 	var hostname = flag.String("h", shortName, "Hostname to use in metrics, defaults to hostname -S")
 	flag.Parse()
 
