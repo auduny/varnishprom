@@ -329,7 +329,6 @@ func main() {
 
 				var stats VarnishStats
 				if strings.Contains(varnishVersion, "6.0") {
-					slog.Debug("Using varnish 6.0 json-parsing")
 					// We need to remove the dreaded timestamp line from varnishstat
 					var filteredOutput bytes.Buffer
 					scanner := bufio.NewScanner(varnishstatOutput)
@@ -375,14 +374,12 @@ func main() {
 						var backend, director, counter, backendtype string
 
 						if strings.HasPrefix(key, "VBE."+activeVcl+".udo") {
-							slog.Info("UDO", key, metric.Value)
 							backendtype = "udo"
 							matched := udoRe.FindStringSubmatch(key)
 							backend = matched[1]
 							director = matched[2]
 							counter = matched[3]
 						} else if strings.HasPrefix(key, "VBE."+activeVcl+".goto") {
-							slog.Info("GOTO", key, metric.Value)
 							backendtype = "goto"
 							matched := gotoRe.FindStringSubmatch(key)
 							backend = matched[1]
@@ -429,7 +426,7 @@ func main() {
 							prommetric := getCounter("stats_"+counter, metric.Description, []string{"host"})
 							prommetric.WithLabelValues(*hostname).Add(float64(valueFloat))
 						} else {
-							slog.Info("Unknown metric type", "metrictype", metric.Type)
+							slog.Debug("Unknown metric type", "metrictype", metric.Type)
 						}
 					}
 					// Add more conditions as needed.
