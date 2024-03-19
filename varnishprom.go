@@ -124,6 +124,20 @@ func getCounter(key string, desc string, labelNames []string) *PromCounter {
 	return counter
 }
 
+func setCounter(counter *PromCounter, value uint64, labelNames []string) {
+	dynamicCountsMetricsMutex.Lock()
+	defer dynamicCountsMetricsMutex.Unlock()
+	slog.Info("setCounter", "oldvalue", counter.lastValue, "newvalue", value, "labelNames", labelNames)
+	counter.counterVec.WithLabelValues(labelNames...).Add(float64(value - uint64(counter.lastValue)))
+	counter.lastValue = value
+}
+
+func setGauge(gauge *prometheus.GaugeVec, value uint64, labelNames []string) {
+	dymamicGaugesMetricsMutex.Lock()
+	defer dymamicGaugesMetricsMutex.Unlock()
+	gauge.WithLabelValues(labelNames...).Set(float64(value))
+}
+
 func main() {
 	fqdn, _ := os.Hostname()
 	shortName := strings.Split(fqdn, ".")[0]
@@ -276,10 +290,11 @@ func main() {
 					}
 					commitHash = string(gitCmdOutput)
 					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "githash", "host"})
-					prommetric.WithLabelValues(varnishVersion, commitHash, *hostname).Set(1)
+					setGauge(prommetric, 1, []string{varnishVersion, commitHash, *hostname})
 				} else {
 					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "host"})
-					prommetric.WithLabelValues(varnishVersion, *hostname).Set(1)
+					setGauge(prommetric, 1, []string{varnishVersion, *hostname})
+
 				}
 				// Get the active VCL
 
@@ -409,27 +424,24 @@ func main() {
 								failtype := strings.TrimPrefix(counter, "fail_")
 								counter = "failstate"
 								prommetric := getCounter("stats_backend_"+counter, metric.Description, []string{"backend", "director", "fail", "host", "type"})
-								prommetric.counterVec.WithLabelValues(backend, director, failtype, *hostname, backendtype).Add(float64(metric.Value - uint64(prommetric.lastValue)))
-								prommetric.lastValue = metric.Value
+								setCounter(prommetric, metric.Value, []string{backend, director, failtype, *hostname, backendtype})
 							} else {
 								prommetric := getCounter("stats_backend_"+counter, metric.Description, []string{"backend", "director", "host", "type"})
-								prommetric.counterVec.WithLabelValues(backend, director, *hostname, backendtype).Add(float64(metric.Value - uint64(prommetric.lastValue)))
-								prommetric.lastValue = metric.Value
+								setCounter(prommetric, metric.Value, []string{backend, director, *hostname, backendtype})
 							}
 						} else if metric.Type == "g" {
 							prommetric := getGauge("stats_backend_"+counter, metric.Description, []string{"backend", "director", "host", "type"})
-							prommetric.WithLabelValues(backend, director, *hostname, backendtype).Set(float64(metric.Value))
+							setGauge(prommetric, metric.Value, []string{backend, director, *hostname, backendtype})
 						}
 
 					} else {
 						counter := strings.ReplaceAll(key, ".", "_")
 						if metric.Type == "g" {
 							prommetric := getGauge("stats_"+counter, metric.Description, []string{"host"})
-							prommetric.WithLabelValues(*hostname).Set(float64(metric.Value))
+							setGauge(prommetric, metric.Value, []string{*hostname})
 						} else if metric.Type == "c" {
 							prommetric := getCounter("stats_"+counter, metric.Description, []string{"host"})
-							prommetric.counterVec.WithLabelValues(*hostname).Add(float64(metric.Value - uint64(prommetric.lastValue)))
-							prommetric.lastValue = metric.Value
+							setCounter(prommetric, metric.Value, []string{*hostname})
 						} else {
 							slog.Debug("Unknown metric type", "metrictype", metric.Type)
 						}
