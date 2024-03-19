@@ -278,7 +278,7 @@ func main() {
 					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "githash", "host"})
 					prommetric.WithLabelValues(varnishVersion, commitHash, *hostname).Set(1)
 				} else {
-					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version"})
+					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "host"})
 					prommetric.WithLabelValues(varnishVersion, *hostname).Set(1)
 				}
 				// Get the active VCL
