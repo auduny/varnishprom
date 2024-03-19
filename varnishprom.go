@@ -66,6 +66,9 @@ var (
 	parsedVcl                 = "boot"
 	varnishVersion            = "varnish-6.0.12"
 	commitHash                = ""
+	version                   = "dev"     // goreleaser will fill this in
+	commit                    = "none"    // goreleaser will fill this in
+	date                      = "unknown" // goreleaser will fill this in
 )
 
 // Create or get a reference to a existing gauge
@@ -150,25 +153,13 @@ func main() {
 	var adminHost = flag.String("T", "", "Varnish admin interface")
 	var gitCheck = flag.String("g", "", "Check git commit hash of given directory")
 	var secretsFile = flag.String("S", "/etc/varnish/secretsfile", "Varnish admin secret file")
-	var logLevel = flag.String("v", "info", "Log level")
+	var versionFlag = flag.Bool("v", false, "Print version and exit")
 	var hostname = flag.String("h", shortName, "Hostname to use in metrics, defaults to hostname -S")
 	flag.Parse()
 
-	var slogLevel = new(slog.LevelVar)
-
-	switch *logLevel {
-	case "debug":
-		slogLevel.Set(slog.LevelDebug)
-	case "info":
-		slogLevel.Set(slog.LevelInfo)
-	case "warn":
-		slogLevel.Set(slog.LevelWarn)
-	case "error":
-		slogLevel.Set(slog.LevelError)
-	default:
-		slogLevel.Set(slog.LevelError)
-		slog.Error(fmt.Sprintf("Invalid log level: %s", *logLevel))
-		os.Exit(1)
+	if *versionFlag {
+		fmt.Printf("varnishprom version: %s, commit: %s, date: %s\n", version, commit, date)
+		os.Exit(0)
 	}
 
 	if *logEnabled {
@@ -289,11 +280,11 @@ func main() {
 						break
 					}
 					commitHash = string(gitCmdOutput)
-					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "githash", "activevcl", "host"})
-					setGauge(prommetric, 1, []string{varnishVersion, activeVcl, *hostname})
+					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "githash", "activevcl", "varnishprom", "host"})
+					setGauge(prommetric, 1, []string{varnishVersion, commitHash, activeVcl, version, *hostname})
 				} else {
-					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "activevcl", "host"})
-					setGauge(prommetric, 1, []string{varnishVersion, activeVcl, *hostname})
+					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "activevcl", "varnishprom", "host"})
+					setGauge(prommetric, 1, []string{varnishVersion, activeVcl, version, *hostname})
 				}
 				// Get the active VCL
 
