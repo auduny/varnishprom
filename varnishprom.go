@@ -289,12 +289,11 @@ func main() {
 						break
 					}
 					commitHash = string(gitCmdOutput)
-					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "githash", "host"})
-					setGauge(prommetric, 1, []string{varnishVersion, commitHash, *hostname})
+					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "githash", "activevcl", "host"})
+					setGauge(prommetric, 1, []string{varnishVersion, activeVcl, *hostname})
 				} else {
-					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "host"})
-					setGauge(prommetric, 1, []string{varnishVersion, *hostname})
-
+					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "activevcl", "host"})
+					setGauge(prommetric, 1, []string{varnishVersion, activeVcl, *hostname})
 				}
 				// Get the active VCL
 
@@ -423,11 +422,11 @@ func main() {
 							if strings.HasPrefix(counter, "fail_") {
 								failtype := strings.TrimPrefix(counter, "fail_")
 								counter = "failstate"
-								prommetric := getCounter("stats_backend_"+counter, metric.Description, []string{"backend", "director", "fail", "host", "type"})
-								setCounter(prommetric, metric.Value, []string{backend, director, failtype, *hostname, backendtype})
+								prommetric := getGauge("stats_backend_"+counter, metric.Description+" Counter", []string{"backend", "director", "fail", "host", "type"})
+								setGauge(prommetric, metric.Value, []string{backend, director, failtype, *hostname, backendtype})
 							} else {
-								prommetric := getCounter("stats_backend_"+counter, metric.Description, []string{"backend", "director", "host", "type"})
-								setCounter(prommetric, metric.Value, []string{backend, director, *hostname, backendtype})
+								prommetric := getGauge("stats_backend_"+counter, metric.Description+" Counter", []string{"backend", "director", "host", "type"})
+								setGauge(prommetric, metric.Value, []string{backend, director, *hostname, backendtype})
 							}
 						} else if metric.Type == "g" {
 							prommetric := getGauge("stats_backend_"+counter, metric.Description, []string{"backend", "director", "host", "type"})
@@ -440,8 +439,8 @@ func main() {
 							prommetric := getGauge("stats_"+counter, metric.Description, []string{"host"})
 							setGauge(prommetric, metric.Value, []string{*hostname})
 						} else if metric.Type == "c" {
-							prommetric := getCounter("stats_"+counter, metric.Description, []string{"host"})
-							setCounter(prommetric, metric.Value, []string{*hostname})
+							prommetric := getGauge("stats_"+counter, metric.Description+" Counter", []string{"host"})
+							setGauge(prommetric, metric.Value, []string{*hostname})
 						} else {
 							slog.Debug("Unknown metric type", "metrictype", metric.Type)
 						}
