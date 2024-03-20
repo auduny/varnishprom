@@ -163,7 +163,7 @@ func main() {
 	}
 
 	if *logEnabled {
-		slog.Info("Starting varnishlog parser, looking for '" + *logKey + "' keywords")
+		slog.Info("Starting varnishlog parser", "logkey", *logKey)
 		// Start varnishlog as a subprocess
 		varnishlog := exec.Command("varnishlog", "-i", "VCL_Log")
 		varnishlogOutput, err := varnishlog.StdoutPipe()
@@ -255,7 +255,7 @@ func main() {
 				varnishadmOutput, err := varnishadm.Output()
 
 				if err != nil {
-					slog.Warn("Error running varnishadm: ", err)
+					slog.Warn("Error running varnishadm", "err", err)
 					slog.Warn(fmt.Sprintf("varnishadm -T %s -S %s banner", *adminHost, *secretsFile))
 					break
 				}
@@ -307,7 +307,7 @@ func main() {
 					}
 				}
 				if parsedVcl != activeVcl {
-					slog.Info("Active VCL changed from %s to %s", activeVcl, parsedVcl)
+					slog.Info(fmt.Sprintf("Active VCL changed from %s to %s", activeVcl, parsedVcl))
 					activeVcl = parsedVcl
 				}
 
@@ -317,7 +317,7 @@ func main() {
 					gitCmd := exec.Command("git", "-C", *gitCheck, "log", "-n", "1", "--pretty=format:%H")
 					gitCmdOutput, err := gitCmd.Output()
 					if err != nil {
-						slog.Warn("Error running git: ", "err", err)
+						slog.Warn("Error running git: ", "error", err)
 						break
 					}
 					commitHash = string(gitCmdOutput)
@@ -332,11 +332,11 @@ func main() {
 				// Get a pipe connected to the command's standard output.
 				varnishstatOutput, err := varnishstat.StdoutPipe()
 				if err != nil {
-					slog.Warn("Failed varnishstat:", err)
+					slog.Warn("Failed varnishstat:", "error", err)
 					break
 				}
 				if err := varnishstat.Start(); err != nil {
-					slog.Warn("Failed starting varnishstat:", err)
+					slog.Warn("Failed starting varnishstat:", "error", err)
 					break
 				}
 
@@ -441,7 +441,7 @@ func main() {
 					// Add more conditions as needed.
 				}
 				if err := varnishstat.Wait(); err != nil {
-					slog.Warn("Error waiting for varnishstat: ", err)
+					slog.Warn("Error waiting for varnishstat", "error", err)
 				}
 				mutex.Unlock()
 			}
@@ -454,7 +454,7 @@ func main() {
 		http.Handle(*path, promhttp.Handler())
 		err := http.ListenAndServe(*listen, nil)
 		if err != nil {
-			slog.Error("Failed to start server:", err)
+			slog.Error("Failed to start server:", "error", err)
 		}
 	} else {
 		slog.Error("Not starting log or statsparser. Enable -l (log) -s (stats) or both on the commandline")
