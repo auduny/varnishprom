@@ -270,22 +270,7 @@ func main() {
 						varnishVersion = columns[0]
 					}
 				}
-				// Get Commit hash if needed
-				if *gitCheck != "" {
-					// og -n 1 --pretty=format:"%H"
-					gitCmd := exec.Command("git", "-C", *gitCheck, "log", "-n", "1", "--pretty=format:%H")
-					gitCmdOutput, err := gitCmd.Output()
-					if err != nil {
-						slog.Warn("Error running git: ", "err", err)
-						break
-					}
-					commitHash = string(gitCmdOutput)
-					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "githash", "activevcl", "varnishprom", "host"})
-					setGauge(prommetric, 1, []string{varnishVersion, commitHash, activeVcl, version, *hostname})
-				} else {
-					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "activevcl", "varnishprom", "host"})
-					setGauge(prommetric, 1, []string{varnishVersion, activeVcl, version, *hostname})
-				}
+
 				// Get the active VCL
 
 				if *adminHost != "" {
@@ -324,6 +309,23 @@ func main() {
 				if parsedVcl != activeVcl {
 					slog.Info("Active VCL changed from %s to %s", activeVcl, parsedVcl)
 					activeVcl = parsedVcl
+				}
+
+				// Get Commit hash if needed
+				if *gitCheck != "" {
+					// og -n 1 --pretty=format:"%H"
+					gitCmd := exec.Command("git", "-C", *gitCheck, "log", "-n", "1", "--pretty=format:%H")
+					gitCmdOutput, err := gitCmd.Output()
+					if err != nil {
+						slog.Warn("Error running git: ", "err", err)
+						break
+					}
+					commitHash = string(gitCmdOutput)
+					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "githash", "activevcl", "varnishprom", "host"})
+					setGauge(prommetric, 1, []string{varnishVersion, commitHash, activeVcl, version, *hostname})
+				} else {
+					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "activevcl", "varnishprom", "host"})
+					setGauge(prommetric, 1, []string{varnishVersion, activeVcl, version, *hostname})
 				}
 
 				varnishstat := exec.Command("varnishstat", "-1", "-j")
