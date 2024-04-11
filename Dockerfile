@@ -6,7 +6,7 @@ RUN go mod download
 COPY *.go ./
 RUN CGO_ENABLED=0 GOOS=linux go build -o /varnishprom
 
-#Testing Varnish Enterprise needs payed varnsh enterprise subscription
+#Testing Varnish Enterprise needs payed varnish enterprise subscription
 #FROM quay.io/varnish-software/varnish-plus:latest
 #Testing Varnish Open Source 6.0
 #FROM:varnish:6.0

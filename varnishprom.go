@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log/slog"
+	log "log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -23,16 +23,39 @@ import (
 )
 
 type Metric struct {
-	Description string `json:"description"`
-	Type        string `json:"flag"`
-	Format      string `json:"format"`
-	Value       uint64 `json:"value"`
+	Description string                `json:"description"`
+	Type        string                `json:"flag"`
+	Format      string                `json:"format"`
+	Value       uint64                `json:"value"`
+	LastUpdated uint64                `json:"-"`
+	Name        string                `json:"-"`
+	LabelNames  []string              `json:"-"`
+	LabelValues []string              `json:"-"`
+	Source      string                `json:"-"`
+	Gauge       prometheus.GaugeVec   `json:"-"`
+	Counter     prometheus.CounterVec `json:"-"`
 }
 
 type VarnishStats74 struct {
 	Version   int               `json:"version"`
 	Timestamp string            `json:"timestamp"`
 	Metrics   map[string]Metric `json:"counters"`
+}
+
+type GaugeOverView struct {
+	Name       string
+	Gauge      prometheus.GaugeVec
+	Labels     []string
+	Source     string
+	LastUpdate uint64
+}
+
+type CounterOverView struct {
+	Name       string
+	Counter    prometheus.CounterVec
+	Labels     []string
+	Source     string
+	LastUpdate uint64
 }
 
 type VarnishStats60 struct {
@@ -46,7 +69,7 @@ type VarnishStats interface {
 
 type PromCounter struct {
 	counterVec *prometheus.CounterVec
-	lastValue  uint64
+	LastUpdate uint64
 }
 
 func (v VarnishStats60) GetMetrics() map[string]Metric {
@@ -59,23 +82,27 @@ func (v VarnishStats74) GetMetrics() map[string]Metric {
 
 var (
 	dynamicGauges             = make(map[string]*prometheus.GaugeVec)
-	dymamicGaugesMetricsMutex = &sync.Mutex{}
+	dynamicGaugesMetricsMutex = &sync.Mutex{}
 	dynamicCounters           = make(map[string]*PromCounter)
 	dynamicCountsMetricsMutex = &sync.Mutex{}
-	activeVcl                 = "boot"
-	parsedVcl                 = "boot"
-	varnishVersion            = "varnish-6.0.12"
-	commitHash                = ""
-	version                   = "dev"     // goreleaser will fill this in
-	commit                    = "none"    // goreleaser will fill this in
-	date                      = "unknown" // goreleaser will fill this in
+	CounterOverViewMutex      = &sync.Mutex{}
+	gaugeOverView             = make(map[string]*Metric)
+	//	gaugeOverView   = make(map[string]int)
+	activeVcl      = "boot"
+	parsedVcl      = "boot"
+	varnishVersion = "varnish-6.0.12"
+	commitHash     = ""
+	version        = "dev"     // goreleaser will fill this in
+	commit         = "none"    // goreleaser will fill this in
+	date           = "unknown" // goreleaser will fill this in
+	tickerCount    = 0
 )
 
 // Create or get a reference to a existing gauge
 
 func getGauge(key string, desc string, labelNames []string) *prometheus.GaugeVec {
-	dymamicGaugesMetricsMutex.Lock()
-	defer dymamicGaugesMetricsMutex.Unlock()
+	dynamicGaugesMetricsMutex.Lock()
+	defer dynamicGaugesMetricsMutex.Unlock()
 
 	// If the gauge already exists, return it
 	if gauge, ok := dynamicGauges[key]; ok {
@@ -84,7 +111,7 @@ func getGauge(key string, desc string, labelNames []string) *prometheus.GaugeVec
 	// Otherwise, create a new gauge
 	gauge := prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: fmt.Sprintf("varnish%s", key),
+			Name: key,
 			Help: desc,
 		},
 		labelNames,
@@ -92,7 +119,6 @@ func getGauge(key string, desc string, labelNames []string) *prometheus.GaugeVec
 
 	// Register the new gauge
 	prometheus.MustRegister(gauge)
-
 	// Store the new gauge in the map
 	dynamicGauges[key] = gauge
 
@@ -112,7 +138,7 @@ func getCounter(key string, desc string, labelNames []string) *PromCounter {
 	var counter = new(PromCounter)
 	counter.counterVec = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: fmt.Sprintf("varnish%s", key),
+			Name: key,
 			Help: desc,
 		},
 		labelNames,
@@ -127,18 +153,23 @@ func getCounter(key string, desc string, labelNames []string) *PromCounter {
 	return counter
 }
 
-func setCounter(counter *PromCounter, value uint64, labelNames []string) {
-	dynamicCountsMetricsMutex.Lock()
-	defer dynamicCountsMetricsMutex.Unlock()
-	slog.Info("setCounter", "oldvalue", counter.lastValue, "newvalue", value, "labelNames", labelNames)
-	counter.counterVec.WithLabelValues(labelNames...).Add(float64(value - uint64(counter.lastValue)))
-	counter.lastValue = value
-}
+/*
+	 func setGauge(gauge *prometheus.GaugeVec, value uint64, labelNames []string) {
+		dynamicGaugesMetricsMutex.Lock()
+		defer dynamicGaugesMetricsMutex.Unlock()
+		gauge.WithLabelValues(labelNames...).Set(float64(value))
 
-func setGauge(gauge *prometheus.GaugeVec, value uint64, labelNames []string) {
-	dymamicGaugesMetricsMutex.Lock()
-	defer dymamicGaugesMetricsMutex.Unlock()
-	gauge.WithLabelValues(labelNames...).Set(float64(value))
+}
+*/
+func setGauge(metric Metric) {
+	gauge := getGauge(metric.Name, metric.Description, metric.LabelNames)
+	gauge.WithLabelValues(metric.LabelValues...).Set(float64(metric.Value))
+	metric.LastUpdated = uint64(tickerCount)
+	metric.Gauge = *gauge
+	identifier := metric.Name + strings.Join(metric.LabelValues, "")
+	reg, _ := regexp.Compile("[^a-zA-Z0-9]+")
+	sanitized := reg.ReplaceAllString(identifier, "")
+	gaugeOverView[sanitized] = &metric
 }
 
 func main() {
@@ -155,7 +186,19 @@ func main() {
 	var secretsFile = flag.String("S", "/etc/varnish/secretsfile", "Varnish admin secret file")
 	var versionFlag = flag.Bool("v", false, "Print version and exit")
 	var hostname = flag.String("h", shortName, "Hostname to use in metrics, defaults to hostname -S")
+	var collapse = flag.String("c", "^kozebamze$", "Regexp aganst director to collapse backend")
+	var logLevel = flag.String("V", "info", "Loglevel for varnishprom (debug,info,warn,error)")
 	flag.Parse()
+
+	switch *logLevel {
+	case "error":
+		log.SetLogLoggerLevel(log.LevelError)
+	case "warn":
+		log.SetLogLoggerLevel(log.LevelWarn)
+	case "debug":
+		log.SetLogLoggerLevel(log.LevelDebug)
+	}
+	log.Debug("We are debugging")
 
 	if *versionFlag {
 		fmt.Printf("varnishprom version: %s, commit: %s, date: %s\n", version, commit, date)
@@ -163,7 +206,7 @@ func main() {
 	}
 
 	if *logEnabled {
-		slog.Info("Starting varnishlog parser", "logkey", *logKey)
+		log.Info("Starting varnishlog parser", "logkey", *logKey)
 		// Start varnishlog as a subprocess
 		varnishlog := exec.Command("varnishlog", "-i", "VCL_Log")
 		varnishlogOutput, err := varnishlog.StdoutPipe()
@@ -187,7 +230,7 @@ func main() {
 						continue
 					}
 
-					counterName := "log_" + strings.TrimSpace(parts[0])
+					counterName := "varnishlog_" + strings.TrimSpace(parts[0])
 					labels := strings.TrimSpace(parts[1])
 					desc := "Varnishlog Counter"
 					// Split the labels into pairs
@@ -220,30 +263,35 @@ func main() {
 
 					// Increment the counter with the label values
 					counter.counterVec.WithLabelValues(labelValues...).Inc()
+					log.Debug("varnishlog", "id", counterName)
 				}
 			}
+			log.Error("Lost connection to varnishlog")
 		}()
 
 		varnishlog.Start()
 	}
 	if *statEnabled {
-		slog.Info("Starting varnishstats parser")
+		log.Info("Starting varnishstat parser")
 		ticker := time.NewTicker(10 * time.Second)
+
 		defer ticker.Stop()
-		defer slog.Info("Program is exiting")
+		defer log.Info("Program is exiting")
 
 		// Create a mutex
 		var mutex sync.Mutex
 
 		go func() {
 			for range ticker.C {
+				log.Debug("New varnishlog Tick")
 				// Try to lock the mutex
 				if !mutex.TryLock() {
 					// If the mutex is already locked, skip this tick
-					slog.Warn("Mutex is locked, skipping tick, we might have a problem")
+					log.Warn("Mutex is locked, skipping tick, we might have a problem")
 					continue
 				}
 
+				tickerCount++
 				// Run the varnishadm command
 				var varnishadm *exec.Cmd
 
@@ -255,9 +303,10 @@ func main() {
 				varnishadmOutput, err := varnishadm.Output()
 
 				if err != nil {
-					slog.Warn("Error running varnishadm", "err", err)
-					slog.Warn(fmt.Sprintf("varnishadm -T %s -S %s banner", *adminHost, *secretsFile))
-					break
+					log.Warn("Error running varnishadm", "err", err)
+					log.Warn(fmt.Sprintf("varnishadm -T %s -S %s banner", *adminHost, *secretsFile))
+					mutex.Unlock()
+					continue
 				}
 
 				lines := strings.Split(string(varnishadmOutput), "\n")
@@ -271,6 +320,8 @@ func main() {
 					}
 				}
 
+				log.Debug("varnish", "version", varnishVersion)
+
 				// Get the active VCL
 
 				if *adminHost != "" {
@@ -281,8 +332,8 @@ func main() {
 				varnishadmOutput, err = varnishadm.Output()
 
 				if err != nil {
-					slog.Warn("Error running varnishadm: ", err)
-					slog.Warn(fmt.Sprintf("varnishadm -T %s -S %s vcl.list ", *adminHost, *secretsFile))
+					log.Warn("Error running varnishadm: ", err)
+					log.Warn(fmt.Sprintf("varnishadm -T %s -S %s vcl.list ", *adminHost, *secretsFile))
 					break
 				}
 
@@ -306,8 +357,9 @@ func main() {
 
 					}
 				}
+				log.Debug("VCL decifered", "parsedVcl", parsedVcl, "activeVcl", activeVcl)
 				if parsedVcl != activeVcl {
-					slog.Info(fmt.Sprintf("Active VCL changed from %s to %s", activeVcl, parsedVcl))
+					log.Info(fmt.Sprintf("Active VCL changed from %s to %s", activeVcl, parsedVcl))
 					activeVcl = parsedVcl
 				}
 
@@ -317,26 +369,37 @@ func main() {
 					gitCmd := exec.Command("git", "-C", *gitCheck, "log", "-n", "1", "--pretty=format:%H")
 					gitCmdOutput, err := gitCmd.Output()
 					if err != nil {
-						slog.Warn("Error running git: ", "error", err)
+						log.Warn("Error running git: ", "error", err)
 						break
 					}
 					commitHash = string(gitCmdOutput)
-					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "githash", "activevcl", "varnishprom", "host"})
-					setGauge(prommetric, 1, []string{varnishVersion, commitHash, activeVcl, version, *hostname})
+					setGauge(
+						Metric{
+							Name: "varnishstat_version", Description: "Version Varnish running",
+							LabelNames:  []string{"version", "githash", "activevcl", "varnishprom", "host"},
+							LabelValues: []string{varnishVersion, commitHash, activeVcl, version, *hostname},
+						},
+					)
 				} else {
-					prommetric := getGauge("stats_version", "Version Varnish running", []string{"version", "activevcl", "varnishprom", "host"})
-					setGauge(prommetric, 1, []string{varnishVersion, activeVcl, version, *hostname})
+					log.Debug("We do not have a githash")
+					setGauge(
+						Metric{
+							Name: "varnishstat_version", Description: "Version Varnish running",
+							LabelNames:  []string{"version", "activevcl", "varnishprom", "host"},
+							LabelValues: []string{varnishVersion, activeVcl, version, *hostname},
+						},
+					)
 				}
 
 				varnishstat := exec.Command("varnishstat", "-1", "-j")
 				// Get a pipe connected to the command's standard output.
 				varnishstatOutput, err := varnishstat.StdoutPipe()
 				if err != nil {
-					slog.Warn("Failed varnishstat:", "error", err)
+					log.Warn("Failed varnishstat:", "error", err)
 					break
 				}
 				if err := varnishstat.Start(); err != nil {
-					slog.Warn("Failed starting varnishstat:", "error", err)
+					log.Warn("Failed starting varnishstat:", "error", err)
 					break
 				}
 
@@ -363,7 +426,7 @@ func main() {
 					stats = stats7
 				}
 				if err != nil {
-					slog.Warn("Can't decode json from varnishstat", "error", err)
+					log.Warn("Can't decode json from varnishstat", "error", err)
 					return
 				}
 				// VBE.boot.goto.00000928.(52.2.2.2).(http://foobar.s3-website.eu-central-1.amazonaws.com:80).(ttl:10.000000).happy
@@ -373,6 +436,9 @@ func main() {
 				udoRe := regexp.MustCompile(`^.*\.udo\..*?\((\w+):(\d+\.\d+\.\d+\.\d+):(\d+)\)\.(\w+)`)
 				backendRe := regexp.MustCompile(`^\w+\.\w+\.(\w+)\.(\w+)`)
 				directorRe := regexp.MustCompile(`[-_\d]+$`)
+
+				collapse := regexp.MustCompile(*collapse)
+
 				//				bulkRe := regexp.MustCompile(`^(.*?)\s+(\d+)[\d\.\s]+(.*)`)
 				metrics := stats.GetMetrics()
 				for key, metric := range metrics {
@@ -410,38 +476,59 @@ func main() {
 							}
 							counter = matched[2]
 						}
+						if collapse.MatchString(director) {
+							backend = "<collapsed>"
+						}
 						if metric.Type == "c" {
 							// Concatenate the failscenarios
 							if strings.HasPrefix(counter, "fail_") {
 								failtype := strings.TrimPrefix(counter, "fail_")
-								counter = "failstate"
-								prommetric := getGauge("stats_backend_"+counter, metric.Description+" Counter", []string{"backend", "director", "fail", "host", "type"})
-								setGauge(prommetric, metric.Value, []string{backend, director, failtype, *hostname, backendtype})
+								metric.Name = "varnishstat_backend_fail"
+								metric.LabelNames = []string{"backend", "director", "fail", "host", "type"}
+								metric.LabelValues = []string{backend, director, failtype, *hostname, backendtype}
+								setGauge(metric)
 							} else {
-								prommetric := getGauge("stats_backend_"+counter, metric.Description+" Counter", []string{"backend", "director", "host", "type"})
-								setGauge(prommetric, metric.Value, []string{backend, director, *hostname, backendtype})
+								metric.Name = "varnishstat_backend_" + counter
+								metric.LabelNames = []string{"backend", "director", "host", "type"}
+								metric.LabelValues = []string{backend, director, *hostname, backendtype}
+								setGauge(metric)
 							}
 						} else if metric.Type == "g" {
-							prommetric := getGauge("stats_backend_"+counter, metric.Description, []string{"backend", "director", "host", "type"})
-							setGauge(prommetric, metric.Value, []string{backend, director, *hostname, backendtype})
+							metric.Name = "varnishstat_backend_" + counter
+							metric.LabelNames = []string{"backend", "director", "host", "type"}
+							metric.LabelValues = []string{backend, director, *hostname, backendtype}
+							setGauge(metric)
 						}
 
 					} else {
-						counter := strings.ReplaceAll(key, ".", "_")
+						metric.Name = "varnishstat_" + strings.ReplaceAll(key, ".", "_")
 						if metric.Type == "g" {
-							prommetric := getGauge("stats_"+counter, metric.Description, []string{"host"})
-							setGauge(prommetric, metric.Value, []string{*hostname})
+							metric.LabelNames = []string{"host"}
+							metric.LabelValues = []string{*hostname}
+							setGauge(metric)
 						} else if metric.Type == "c" {
-							prommetric := getGauge("stats_"+counter, metric.Description+" Counter", []string{"host"})
-							setGauge(prommetric, metric.Value, []string{*hostname})
+							metric.LabelNames = []string{"host"}
+							metric.LabelValues = []string{*hostname}
+							setGauge(metric)
 						} else {
-							slog.Debug("Unknown metric type", "metrictype", metric.Type)
+							log.Debug("Unknown metric type", "metrictype", metric.Type)
 						}
 					}
 					// Add more conditions as needed.
 				}
+				log.Debug("Iterating over old Metrics")
+				for metricname, metric := range gaugeOverView {
+					if int(metric.LastUpdated) < tickerCount {
+						metric.Gauge.DeleteLabelValues(metric.LabelValues...)
+						// Delete the map object
+						delete(gaugeOverView, metricname)
+						log.Debug("Deleting old metrics ", "Metric", metricname)
+
+					}
+
+				}
 				if err := varnishstat.Wait(); err != nil {
-					slog.Warn("Error waiting for varnishstat", "error", err)
+					log.Warn("Error waiting for varnishstat", "error", err)
 				}
 				mutex.Unlock()
 			}
@@ -450,14 +537,14 @@ func main() {
 
 	if *statEnabled || *logEnabled {
 		// Set up Prometheus metrics endpoint
-		slog.Info("Starting Prometheus metrics endpoint on " + *listen + *path)
+		log.Info("Starting Prometheus metrics endpoint on " + *listen + *path)
 		http.Handle(*path, promhttp.Handler())
 		err := http.ListenAndServe(*listen, nil)
 		if err != nil {
-			slog.Error("Failed to start server:", "error", err)
+			log.Error("Failed to start server:", "error", err)
 		}
 	} else {
-		slog.Error("Not starting log or statsparser. Enable -l (log) -s (stats) or both on the commandline")
+		log.Error("Not starting log or statsparser. Enable -l (log) -s (stats) or both on the commandline")
 		os.Exit(1)
 	}
 }

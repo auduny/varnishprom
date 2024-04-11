@@ -1,0 +1,17 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Run Varnish",
+            "type": "shell",
+            "command": "varnishd -F -a :8180 -f $PWD/varnish.vcl"
+        },
+        {
+            "label": "Chaosbackend",
+            "type": "shell",
+            "command": "docker run -p 8181:8181 -p 8182:8182 ghcr.io/auduny/chaosbackend:latest -a 0.0.0.0 -p 8181,8182"
+        }
+    ]
+}
