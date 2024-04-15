@@ -433,7 +433,7 @@ func main() {
 				// VBE.boot.vglive_web_01.happy
 				// VBE.boot.udo.vg_foobar_udo.(sa4:10.2.3.4:3005).happy
 				gotoRe := regexp.MustCompile(`^.*\.goto\..*?\(([\d\.]+).*?\(([^\)]+).*\)\.(\w+)`)
-				udoRe := regexp.MustCompile(`^.*\.udo\..*?\((\w+):(\d+\.\d+\.\d+\.\d+):(\d+)\)\.(\w+)`)
+				udoRe := regexp.MustCompile(`^.*\.udo\.(.*?)\.\(sa[46]:(\d+\.\d+\.\d+\.\d+:\d+)\)\.(\w+)`)
 				backendRe := regexp.MustCompile(`^\w+\.\w+\.(\w+)\.(\w+)`)
 				directorRe := regexp.MustCompile(`[-_\d]+$`)
 
@@ -455,8 +455,8 @@ func main() {
 						if strings.HasPrefix(key, "VBE."+activeVcl+".udo") {
 							backendtype = "udo"
 							matched := udoRe.FindStringSubmatch(key)
-							backend = matched[1]
-							director = matched[2]
+							backend = matched[2]
+							director = matched[1]
 							counter = matched[3]
 						} else if strings.HasPrefix(key, "VBE."+activeVcl+".goto") {
 							backendtype = "goto"
