@@ -57,7 +57,6 @@ sub vcl_deliver {
 
 sub vcl_synth {
 	set resp.http.X-Cache = "ERROR";
-	std.log("prom=backends backend=" + resp.http.V-Backend + ",director="+ resp.http.V-Director + ",cache=" + resp.http.V-Cache + ",status=" + resp.status);
 }
 
 

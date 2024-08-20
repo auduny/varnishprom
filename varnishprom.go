@@ -183,7 +183,7 @@ func main() {
 	//	var varnishPath = flag.String("P", fqdn, "Path to varnish data")
 	var adminHost = flag.String("T", "", "Varnish admin interface")
 	var gitCheck = flag.String("g", "", "Check git commit hash of given directory")
-	var secretsFile = flag.String("S", "/etc/varnish/secretsfile", "Varnish admin secret file")
+	var secretsFile = flag.String("S", "", "Varnish admin secret file")
 	var versionFlag = flag.Bool("v", false, "Print version and exit")
 	var hostname = flag.String("h", shortName, "Hostname to use in metrics, defaults to hostname -S")
 	var collapse = flag.String("c", "^kozebamze$", "Regexp aganst director to collapse backend")
@@ -206,70 +206,72 @@ func main() {
 	}
 
 	if *logEnabled {
-		log.Info("Starting varnishlog parser", "logkey", *logKey)
-		// Start varnishlog as a subprocess
-		varnishlog := exec.Command("varnishlog", "-i", "VCL_Log")
-		varnishlogOutput, err := varnishlog.StdoutPipe()
-		if err != nil {
-			panic(err)
-		}
-
-		scanner := bufio.NewScanner(varnishlogOutput)
 		go func() {
-			for scanner.Scan() {
-				line := scanner.Text()
-				// Check if the line contains 'prom='
-				keyIndex := strings.Index(line, *logKey+"=")
-				if keyIndex != -1 {
-					extracted := line[keyIndex+len(*logKey)+1:]
+			for {
+				log.Info("Starting varnishlog parser", "logkey", *logKey)
+				// Start varnishlog as a subprocess
+				varnishlog := exec.Command("varnishlog", "-i", "VCL_Log")
+				varnishlogOutput, err := varnishlog.StdoutPipe()
+				if err != nil {
+					panic(err)
+				}
+				varnishlog.Start()
+				scanner := bufio.NewScanner(varnishlogOutput)
+				for scanner.Scan() {
+					line := scanner.Text()
+					// Check if the line contains 'prom='
+					keyIndex := strings.Index(line, *logKey+"=")
+					if keyIndex != -1 {
+						extracted := line[keyIndex+len(*logKey)+1:]
 
-					// Split the extracted string into the counter name and labels
-					parts := strings.SplitN(extracted, " ", 2)
-					if len(parts) < 1 {
-						// If there are not enough parts, skip this line
-						continue
-					}
-
-					counterName := "varnishlog_" + strings.TrimSpace(parts[0])
-					labels := strings.TrimSpace(parts[1])
-					desc := "Varnishlog Counter"
-					// Split the labels into pairs
-					labelPairs := strings.Split(labels, ",")
-
-					// Create slices to hold the label names and values
-					labelNames := make([]string, 0, len(labelPairs))
-					labelValues := make([]string, 0, len(labelPairs))
-					for _, pair := range labelPairs {
-						// Split the pair into the label name and value
-						pairParts := strings.SplitN(pair, "=", 2)
-						if len(pairParts) < 2 {
-							// If there are not enough parts, skip this pair
+						// Split the extracted string into the counter name and labels
+						parts := strings.SplitN(extracted, " ", 2)
+						if len(parts) < 1 {
+							// If there are not enough parts, skip this line
 							continue
 						}
 
-						labelName := pairParts[0]
-						labelValue := pairParts[1]
-						if labelName == "desc" {
-							desc = labelValue
-						}
-						// Add the label name and value to the slices
-						labelNames = append(labelNames, labelName)
-						labelValues = append(labelValues, labelValue)
-					}
-					labelValues = append(labelValues, *hostname)
-					labelNames = append(labelNames, "host")
-					// Get the counter for this counter name
-					counter := getCounter(counterName, desc, labelNames)
+						counterName := "varnishlog_" + strings.TrimSpace(parts[0])
+						labels := strings.TrimSpace(parts[1])
+						desc := "Varnishlog Counter"
+						// Split the labels into pairs
+						labelPairs := strings.Split(labels, ",")
 
-					// Increment the counter with the label values
-					counter.counterVec.WithLabelValues(labelValues...).Inc()
-					log.Debug("varnishlog", "id", counterName)
+						// Create slices to hold the label names and values
+						labelNames := make([]string, 0, len(labelPairs))
+						labelValues := make([]string, 0, len(labelPairs))
+						for _, pair := range labelPairs {
+							// Split the pair into the label name and value
+							pairParts := strings.SplitN(pair, "=", 2)
+							if len(pairParts) < 2 {
+								// If there are not enough parts, skip this pair
+								continue
+							}
+
+							labelName := pairParts[0]
+							labelValue := pairParts[1]
+							if labelName == "desc" {
+								desc = labelValue
+							}
+							// Add the label name and value to the slices
+							labelNames = append(labelNames, labelName)
+							labelValues = append(labelValues, labelValue)
+						}
+						labelValues = append(labelValues, *hostname)
+						labelNames = append(labelNames, "host")
+						// Get the counter for this counter name
+						counter := getCounter(counterName, desc, labelNames)
+
+						// Increment the counter with the label values
+						counter.counterVec.WithLabelValues(labelValues...).Inc()
+						log.Debug("varnishlog", "id", counterName)
+					}
 				}
+				log.Error("Lost connection to varnishlog")
+				time.Sleep(time.Second * 5)
 			}
-			log.Error("Lost connection to varnishlog")
 		}()
 
-		varnishlog.Start()
 	}
 	if *statEnabled {
 		log.Info("Starting varnishstat parser")
@@ -294,8 +296,7 @@ func main() {
 				tickerCount++
 				// Run the varnishadm command
 				var varnishadm *exec.Cmd
-
-				if *adminHost != "" {
+				if len(*adminHost) > 0 {
 					varnishadm = exec.Command("varnishadm", "-T", *adminHost, "-S", *secretsFile, "banner")
 				} else {
 					varnishadm = exec.Command("varnishadm", "banner")
@@ -304,7 +305,7 @@ func main() {
 
 				if err != nil {
 					log.Warn("Error running varnishadm", "err", err)
-					log.Warn(fmt.Sprintf("varnishadm -T %s -S %s banner", *adminHost, *secretsFile))
+					log.Warn(varnishadm.String())
 					mutex.Unlock()
 					continue
 				}

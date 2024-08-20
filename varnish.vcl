@@ -53,7 +53,7 @@ sub vcl_hit {
 sub vcl_miss {
 	set req.http.X-Varnish-Cache = "MISS";
 	if (vsthrottle.is_denied("apikey:" + client.ip, 1000,10s,30s)) {
-		set req.http.X-Varnish-Cache = "BACKEND-THROTTLED";
+		set req.http.X-Varnish-Cache = "THROTTLED";
 	    return (synth(429, "Throttling Backend"));
 	}
 }
@@ -78,7 +78,7 @@ sub vcl_backend_response {
 }
 
 sub vcl_backend_error {
-	set beresp.http.X-Varnish-Cache = "BACKEND_FAILED";
+	set beresp.http.X-Varnish-Cache = "BACKEND_ERROR";
 }
 
 sub vcl_deliver {
