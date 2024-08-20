@@ -1,13 +1,28 @@
 vcl 4.1;
 import std;
 import directors;
+import vsthrottle;
 
+probe chaosprobe {
+	.url = "/status";
+	.timeout = 1s;
+	.interval = 2s;
+}
 backend chaos1 {
-        .host = "127.0.0.1:8181";
+        .host = "chaosbackend:8180";
+		.probe = chaosprobe;
+		.between_bytes_timeout = 2s;
+		.first_byte_timeout = 2s;
+		.connect_timeout = 1s;
 }
 
 backend chaos2 {
-        .host = "127.0.0.1:8182";
+        .host = "chaosbackend:8181";
+		.probe = chaosprobe;
+		.between_bytes_timeout = 2s;
+		.first_byte_timeout = 2s;
+		.connect_timeout = 1s;
+
 }
 
 sub vcl_init {
@@ -29,7 +44,7 @@ sub vcl_recv {
 }
 
 sub vcl_hit {
-	set req.http.x-cache = "HIT";
+	set req.http.X-Varnish-Cache = "HIT";
 	if (obj.ttl <= 0s && obj.grace > 0s) {
 		set req.http.x-cache = "STALE";
 	}
@@ -37,6 +52,10 @@ sub vcl_hit {
 
 sub vcl_miss {
 	set req.http.X-Varnish-Cache = "MISS";
+	if (vsthrottle.is_denied("apikey:" + client.ip, 1000,10s,30s)) {
+		set req.http.X-Varnish-Cache = "BACKEND-THROTTLED";
+	    return (synth(429, "Throttling Backend"));
+	}
 }
 
 sub vcl_pass {
@@ -48,25 +67,29 @@ sub vcl_pipe {
 }
 
 sub vcl_synth {
-	set req.http.X-Varnish-Cache = "SYNTH";
+	set resp.http.X-Varnish-Cache = "SYNTH";
+}
+
+sub vcl_backend_fetch {
 }
 
 sub vcl_backend_response {
 	set beresp.http.Varnish-Backend = beresp.backend;
 }
 
+sub vcl_backend_error {
+	set beresp.http.X-Varnish-Cache = "BACKEND_FAILED";
+}
+
 sub vcl_deliver {
 	if (obj.uncacheable) {
 		set resp.http.X-Varnish-Cache = resp.http.X-Varnish-Cache + " uncacheable" ;
 	}
+	if (!resp.http.X-Varnish-Cache) {
+		set resp.http.X-Varnish-Cache = req.http.X-Varnish-Cache;
+	}	
 	set resp.http.X-Varnish-Hits = obj.hits;
 	set resp.http.X-Varnish-Director = req.http.X-Varnish-Director;
 	std.log("prom=backends backend=" + resp.http.X-Varnish-Backend + ",director="+ resp.http.X-Varnish-Director + ",cache=" + req.http.X-Varnish-Cache + ",status=" + resp.status +",desc=vcl_deliver");
 }
-
-sub vcl_synth {
-	set resp.http.X-Cache = "ERROR";
-	std.log("prom=backends backend=" + resp.http.V-Backend + ",director="+ resp.http.V-Director + ",cache=" + resp.http.V-Cache + ",status=" + resp.status);
-}
-
 

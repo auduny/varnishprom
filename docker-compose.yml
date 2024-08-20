@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   varnish:
     hostname: varnish
@@ -16,7 +14,6 @@ services:
     entrypoint: varnishd -F -a :80 -f /etc/varnish/default.vcl -T 0.0.0.0:6081 -S /etc/varnish/secret
     depends_on:
       - chaosbackend
-
 
   chaosbackend:
     image: ghcr.io/auduny/chaosbackend:v0.8
