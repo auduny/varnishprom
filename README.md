@@ -21,14 +21,33 @@ sub vcl_backend_response {
 
 A full working vcl example to count hits/misses for each backend is [here](varnish.vcl)
 
+This can be run using `docker-compose up` in this repo. This spins up [chaosbackend](https://github.com/auduny/chaosbackend), varnish and the exporter.
+
+Surf to `http://lolalhost:8080/ to see the backend response through varnish
+Then go to `http://localhost:7083/metrics` to see the metrics
+
+The metrics can then be seen at `http://localhost:7083/metrics` 
+
 ## Usage
-```
-./varnishprom --help
+```shell
+./varnishprom -i 0.0.0.0:7083 -c (amazonaws.com|vglive.no) -l -s -g /etc/varnish.git
+````
+
+All flags:
+
+```shell
+❯ ./varnishprom --help
 Usage of ./varnishprom:
-❯ ./varnishprom --help                                     
-Usage of ./varnishprom:
-  -a string
-        Varnish admin interface (default "127.0.0.1:42717")
+  -S string
+        Varnish admin secret file
+  -T string
+        Varnish admin interface
+  -V string
+        Loglevel for varnishprom (debug,info,warn,error) (default "info")
+  -c string
+        Regexp aganst director to collapse backend (default "^kozebamze$")
+  -g string
+        Check git commit hash of given directory
   -h string
         Hostname to use in metrics, defaults to hostname -S (default "airmone")
   -i string
@@ -39,6 +58,7 @@ Usage of ./varnishprom:
   -p string
         Path for metrics endpoint (default "/metrics")
   -s    Start varnshstats parser
+  -v    Print version and exit
 ```
 
 It needs to be started with the `-l` and/or `-s` flags to start the varnishlog and/or varnishstat parsers.
