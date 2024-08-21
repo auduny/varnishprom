@@ -6,7 +6,7 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 # vim: set ts=2 sw=2 tw=0 fo=cnqoj
 
-version: 1
+version: 2
 
 before:
   hooks:
@@ -77,7 +77,7 @@ nfpms:
 
 
     # Version Release.
-    release: 1
+    release: "1"
 
     # Section.
     section: default
@@ -85,3 +85,40 @@ nfpms:
     # Priority.
     priority: extra
 
+dockers:
+- image_templates: ["ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}-amd64"]
+  dockerfile: Dockerfile
+  use: buildx
+  build_flag_templates:
+  - --platform=linux/amd64
+  - --label=org.opencontainers.image.title={{ .ProjectName }}
+  - --label=org.opencontainers.image.description={{ .ProjectName }}
+  - --label=org.opencontainers.image.url=https://github.com/auduny/{{ .ProjectName }}
+  - --label=org.opencontainers.image.source=https://github.com/auduny/{{ .ProjectName }}
+  - --label=org.opencontainers.image.version={{ .Version }}
+  - --label=org.opencontainers.image.created={{ time "2006-01-02T15:04:05Z07:00" }}
+  - --label=org.opencontainers.image.revision={{ .FullCommit }}
+  - --label=org.opencontainers.image.licenses=MIT
+- image_templates: ["ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}-arm64v8"]
+  goarch: arm64
+  dockerfile: Dockerfile
+  use: buildx
+  build_flag_templates:
+  - --platform=linux/arm64/v8
+  - --label=org.opencontainers.image.title={{ .ProjectName }}
+  - --label=org.opencontainers.image.description={{ .ProjectName }}
+  - --label=org.opencontainers.image.url=https://github.com/auduny/{{ .ProjectName }}
+  - --label=org.opencontainers.image.source=https://github.com/auduny/{{ .ProjectName }}
+  - --label=org.opencontainers.image.version={{ .Version }}
+  - --label=org.opencontainers.image.created={{ time "2006-01-02T15:04:05Z07:00" }}
+  - --label=org.opencontainers.image.revision={{ .FullCommit }}
+  - --label=org.opencontainers.image.licenses=GPLv2
+docker_manifests:
+- name_template: ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}
+  image_templates:
+  - ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}-amd64
+  - ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}-arm64v8
+- name_template: ghcr.io/auduny/{{ .ProjectName }}:latest
+  image_templates:
+  - ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}-amd64
+  - ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}-arm64v8
