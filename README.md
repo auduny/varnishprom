@@ -4,7 +4,11 @@ This [Varnish](https://varnish-cache.org/) prometheus exporter exposes metrics g
 
 ## Use case 
 
-Most prometheus exporters for varnish will just parse and export the `varnishstat` metrics. This exporter also parses the `varnishlog` and exports the metrics from the log. This is useful for monitoring exactly what you want from within VCL by adding `std.log("<keyword>=<metricname> label1=<value> label2=<value>")` to the part of the VCL you like to create a counter for
+Most prometheus exporters for varnish will just parse and export the `varnishstat` metrics. This exporter also parses the `varnishlog` and exports the metrics from the log. This is useful for monitoring exactly what you want from within VCL by adding
+ ```
+ std.log("<keyword>=<metricname> label1=<value> label2=<value>")
+ ```
+  to the part of the VCL you like to create a counter for
 
 The default keyword is `prom`, but this can be changed with the `-k` flag.
 
@@ -23,10 +27,9 @@ A full working vcl example to count hits/misses for each backend is [here](varni
 
 This can be run using `docker-compose up` in this repo. This spins up [chaosbackend](https://github.com/auduny/chaosbackend), varnish and the exporter.
 
-Surf to `http://lolalhost:8080/ to see the backend response through varnish
-Then go to `http://localhost:7083/metrics` to see the metrics
+Surf to http://localhost:8080/ to see the backend response through varnish
+Then go to http://localhost:7083/metrics to see the metrics
 
-The metrics can then be seen at `http://localhost:7083/metrics` 
 
 ## Usage
 ```shell
