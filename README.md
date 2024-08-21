@@ -28,13 +28,14 @@ A full working vcl example to count hits/misses for each backend is [here](varni
 This can be run using `docker-compose up` in this repo. This spins up [chaosbackend](https://github.com/auduny/chaosbackend), varnish and the exporter.
 
 Surf to http://localhost:8080/ to see the backend response through varnish
+
 Then go to http://localhost:7083/metrics to see the metrics
 
 
 ## Usage
 ```shell
 ./varnishprom -i 0.0.0.0:7083 -c (amazonaws.com|vglive.no) -l -s -g /etc/varnish.git
-````
+```
 
 All flags:
 
