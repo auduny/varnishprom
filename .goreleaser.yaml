@@ -104,7 +104,7 @@ dockers:
   dockerfile: Dockerfile
   use: buildx
   build_flag_templates:
-  - --platform=linux/arm64/v8
+  - --platform=linux/arm64
   - --label=org.opencontainers.image.title={{ .ProjectName }}
   - --label=org.opencontainers.image.description={{ .ProjectName }}
   - --label=org.opencontainers.image.url=https://github.com/auduny/{{ .ProjectName }}
@@ -117,8 +117,8 @@ docker_manifests:
 - name_template: ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}
   image_templates:
   - ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}-amd64
-  - ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}-arm64v8
+  - ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}-arm64
 - name_template: ghcr.io/auduny/{{ .ProjectName }}:latest
   image_templates:
   - ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}-amd64
-  - ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}-arm64v8
+  - ghcr.io/auduny/{{ .ProjectName }}:{{ .Version }}-arm64
