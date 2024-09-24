@@ -499,6 +499,13 @@ func main() {
 							metric.LabelNames = []string{"backend", "director", "host", "type"}
 							metric.LabelValues = []string{backend, director, *hostname, backendtype}
 							setGauge(metric)
+						} else if metric.Type == "q" || metric.Type == "b" {
+							metric.Name = "varnishstat_backend_" + counter
+							metric.LabelNames = []string{"backend", "director", "host", "type"}
+							metric.LabelValues = []string{backend, director, *hostname, backendtype}
+							setGauge(metric)
+						} else {
+							log.Debug("Unknown metric type", "metrictype", metric.Type)
 						}
 					} else if strings.HasPrefix(key, "VBE.") {
 						// Not the current VCL. Skip these.
