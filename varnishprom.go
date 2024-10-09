@@ -220,7 +220,7 @@ func main() {
 				for scanner.Scan() {
 					line := scanner.Text()
 					// Check if the line contains 'prom='
-					keyIndex := strings.Index(line, *logKey+"=")
+					keyIndex := strings.Index(line, "-   VCL_Log        "+*logKey+"=")
 					if keyIndex != -1 {
 						extracted := line[keyIndex+len(*logKey)+1:]
 
