@@ -219,10 +219,12 @@ func main() {
 				scanner := bufio.NewScanner(varnishlogOutput)
 				for scanner.Scan() {
 					line := scanner.Text()
+
 					// Check if the line contains 'prom='
-					keyIndex := strings.Index(line, "-   VCL_Log        "+*logKey+"=")
+					// This is ugly as hell and needs rewriting
+					keyIndex := strings.Index(line, " "+*logKey+"=")
 					if keyIndex != -1 {
-						extracted := line[keyIndex+len(*logKey)+1:]
+						extracted := line[keyIndex+len(*logKey)+2:]
 
 						// Split the extracted string into the counter name and labels
 						parts := strings.SplitN(extracted, " ", 2)

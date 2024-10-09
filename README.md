@@ -73,3 +73,6 @@ Example [systemd file](varnishprom.service) to run the exporter as a service.
 ## Bugs
 
 The varnishstat parses is trying to be smart, but might be stupid. It will try to parse the output of `varnishstat -1`
+
+-   VCL_Log        prom=backends director=vg_frimand_udo,cache=HIT,status=200
+-   VCL_Log        prom=backends backend=,director=chaos,cache=HIT,status=200,desc=vcl_deliver  

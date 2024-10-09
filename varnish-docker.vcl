@@ -26,7 +26,7 @@ sub vcl_recv {
 	} else {
 		set req.backend_hint = chaos.backend();
 	}
-	set req.http.X-Director = req.backend_hint;
+	set req.http.Director = req.backend_hint;
 }
 
 sub vcl_hit {
@@ -51,12 +51,12 @@ sub vcl_backend_response {
 
 sub vcl_deliver {
 	set resp.http.V-Cache = req.http.V-Cache + ":" + obj.hits;
-	set resp.http.V-Director = req.http.X-Director;
+	set resp.http.V-Director = req.http.Director;
 	std.log("prom=backends backend=" + resp.http.V-Backend + ",director="+ resp.http.V-Director + ",cache=" + req.http.V-Cache + ",status=" + resp.status);
 }
 
 sub vcl_synth {
-	set resp.http.X-Cache = "ERROR";
+	set resp.http.Cache = "ERROR";
 }
 
 
