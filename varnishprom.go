@@ -437,7 +437,7 @@ func main() {
 				// VBE.boot.udo.vg_foobar_udo.(sa4:10.2.3.4:3005).happy
 				gotoRe := regexp.MustCompile(`^.*\.goto\..*?\(([\d\.]+).*?\(([^\)]+).*\)\.(\w+)`)
 				udoRe := regexp.MustCompile(`^.*\.udo\.(.*?)\.\(sa[46]:(\d+\.\d+\.\d+\.\d+:\d+)\)\.(\w+)`)
-				backendRe := regexp.MustCompile(`^\w+\.\w+\.(\w+)\.(\w+)`)
+				backendRe := regexp.MustCompile(`(\w+)\.(\w+)$`)
 				directorRe := regexp.MustCompile(`[-_\d]+$`)
 
 				collapse := regexp.MustCompile(*collapse)
