@@ -510,7 +510,7 @@ func main() {
 					} else if strings.HasPrefix(key, "VBE.") {
 						// Not the current VCL. Skip these.
 					} else {
-						if strings.HasPrefix("KVSTORE") {
+						if strings.HasPrefix(key, "KVSTORE") {
 							// skip KVSTORE KEYS
 							continue
 						}
