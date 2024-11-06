@@ -335,7 +335,7 @@ func main() {
 				varnishadmOutput, err = varnishadm.Output()
 
 				if err != nil {
-					log.Warn("Error running varnishadm: ", err)
+					log.Warn("Error running varnishadm: ", "error", err.Error())
 					log.Warn(fmt.Sprintf("varnishadm -T %s -S %s vcl.list ", *adminHost, *secretsFile))
 					break
 				}
